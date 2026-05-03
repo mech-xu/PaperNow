@@ -1,5 +1,10 @@
 <template>
   <view class="collection-page">
+    <!-- Back to Home -->
+    <view class="nav-back" @tap="goHome">
+      <text class="nav-back-icon">‹</text>
+    </view>
+
     <!-- Header -->
     <view class="header">
       <text class="page-title">我的收藏</text>
@@ -315,6 +320,10 @@ function goToDetail(item: UserCollection) {
 
 function goToSearch() {
   uni.switchTab({ url: '/pages/search/index' })
+}
+
+function goHome() {
+  uni.switchTab({ url: '/pages/home/index' })
 }
 
 async function handleStatusChange(collectionId: string, status: ReadingStatus) {
@@ -715,5 +724,25 @@ async function handleCreateAndAddTag() {
   color: #666;
   padding-top: 12px;
   border-top: 1px solid #f0f0f0;
+}
+
+.nav-back {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  z-index: 999;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 50%;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+}
+.nav-back-icon {
+  font-size: 22px;
+  color: #333;
+  line-height: 1;
 }
 </style>

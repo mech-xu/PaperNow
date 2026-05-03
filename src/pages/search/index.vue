@@ -1,5 +1,10 @@
 <template>
   <view class="search-page">
+    <!-- Back to Home -->
+    <view class="nav-back" @tap="goHome">
+      <text class="nav-back-icon">‹</text>
+    </view>
+
     <!-- Search Bar -->
     <SearchBar
       v-model="searchStore.query"
@@ -69,23 +74,27 @@
         <text class="empty-hint">尝试使用不同的关键词或调整筛选条件</text>
       </view>
 
-      <!-- Result List -->
+      <!-- Loading (initial) -->
       <view
-        v-for="doc in searchStore.results"
-        :key="doc.id"
-      >
-        <PaperCard
-          :document="doc"
-          @click="goToDetail(doc)"
-        />
-      </view>
-
-      <!-- Loading -->
-      <view
-        v-if="searchStore.isLoading"
-        class="loading"
+        v-if="searchStore.isLoading && searchStore.results.length === 0"
+        class="loading-initial"
       >
         <text class="loading-text">搜索中...</text>
+      </view>
+
+      <!-- Result List (hide during initial load to prevent jitter) -->
+      <view
+        v-if="!searchStore.isLoading || searchStore.results.length > 0"
+      >
+        <view
+          v-for="doc in searchStore.results"
+          :key="doc.id"
+        >
+          <PaperCard
+            :document="doc"
+            @click="goToDetail(doc)"
+          />
+        </view>
       </view>
 
       <!-- Load More Sentinel (Intersection Observer) -->
@@ -124,6 +133,12 @@ import type { Document, SortOption } from '@/types'
 
 const searchStore = useSearchStore()
 const showFilters = ref(false)
+
+// Update navigation bar title to show selected source
+watch(() => searchStore.selectedSource, (source) => {
+  const title = source ? `Search - ${source}` : 'Search'
+  uni.setNavigationBarTitle({ title })
+}, { immediate: true })
 
 // Infinite scroll with Intersection Observer
 const sentinelRef = ref<HTMLElement | null>(null)
@@ -196,6 +211,10 @@ function handleResetFilters() {
 function goToDetail(doc: Document) {
   uni.navigateTo({ url: `/pages/detail/index?id=${doc.id}` })
 }
+
+function goHome() {
+  uni.switchTab({ url: '/pages/home/index' })
+}
 </script>
 
 <style scoped>
@@ -203,6 +222,27 @@ function goToDetail(doc: Document) {
   min-height: 100vh;
   background-color: #f5f5f5;
   padding-bottom: 16px;
+}
+
+.nav-back {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  z-index: 999;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 50%;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+}
+
+.nav-back-icon {
+  font-size: 22px;
+  color: #333;
+  line-height: 1;
 }
 
 .filter-toggle {
@@ -272,6 +312,12 @@ function goToDetail(doc: Document) {
 .loading {
   text-align: center;
   padding: 24px;
+}
+
+.loading-initial {
+  text-align: center;
+  padding: 80px 24px;
+  min-height: 200px;
 }
 
 .loading-text {

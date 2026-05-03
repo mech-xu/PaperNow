@@ -1,5 +1,10 @@
 <template>
   <view class="profile-page">
+    <!-- Back to Home -->
+    <view class="nav-back" @tap="goHome">
+      <text class="nav-back-icon">‹</text>
+    </view>
+
     <view class="container">
       <!-- Loading -->
       <view
@@ -169,6 +174,8 @@ async function handleLogout() {
 function goToLogin() {
   uni.navigateTo({ url: '/pages/auth/login' })
 }
+
+function goHome() { uni.switchTab({ url: '/pages/home/index' }) }
 </script>
 
 <style scoped>
@@ -319,5 +326,25 @@ function goToLogin() {
   color: #666;
   display: block;
   margin-bottom: 16px;
+}
+
+.nav-back {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  z-index: 999;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 50%;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+}
+.nav-back-icon {
+  font-size: 22px;
+  color: #333;
+  line-height: 1;
 }
 </style>

@@ -36,6 +36,8 @@ export interface BiorxivSearchResult {
 /**
  * Search bioRxiv or medRxiv papers
  * API: /details/{server}/{from_date}/{to_date}/{cursor}
+ * Note: API has no search query param - returns all papers in date range.
+ * We fetch multiple pages and filter client-side until we have enough results.
  */
 export async function searchPapers(
   server: 'biorxiv' | 'medrxiv',
@@ -51,6 +53,8 @@ export async function searchPapers(
   const fromDate = params.fromDate || '2013-11-01'  // bioRxiv started Nov 2013
   const toDate = params.toDate || '2099-12-31'
   const cursor = params.cursor || 0
+  const limit = params.limit || 30
+  const maxPages = 5  // fetch up to 5 pages to find enough matches
 
   // API format: /details/{server}/{from_date}/{to_date}/{cursor}
   const url = `${API_BASE}/details/${server}/${fromDate}/${toDate}/${cursor}`
@@ -64,40 +68,68 @@ export async function searchPapers(
 
   // Normalize messages (API returns array or object depending on version)
   const msgs = Array.isArray(raw.messages) ? raw.messages[0] : raw.messages
-  const collection: BiorxivPaper[] = raw.collection || []
+  let collection: BiorxivPaper[] = raw.collection || []
+  const totalPapers = msgs?.total || collection.length
+
+  // Client-side text filtering (API doesn't support full-text search)
+  if (params.q) {
+    const q = params.q.toLowerCase()
+    const matched: BiorxivPaper[] = []
+    let currentCursor = cursor
+    let pagesFetched = 1
+
+    // Filter first page
+    for (const paper of collection) {
+      if (paper.title.toLowerCase().includes(q)
+        || paper.authors.toLowerCase().includes(q)) {
+        matched.push(paper)
+      }
+    }
+
+    // Fetch more pages until we have enough matches or hit max pages
+    while (matched.length < limit && pagesFetched < maxPages && currentCursor + collection.length < totalPapers) {
+      currentCursor += collection.length
+      const nextUrl = `${API_BASE}/details/${server}/${fromDate}/${toDate}/${currentCursor}`
+      const nextProxyUrl = `${PROXY_URL}?url=${encodeURIComponent(nextUrl)}`
+      const nextRes = await fetch(nextProxyUrl)
+      if (!nextRes.ok) break
+      const nextRaw = await nextRes.json()
+      collection = nextRaw.collection || []
+      if (collection.length === 0) break
+      pagesFetched++
+
+      for (const paper of collection) {
+        if (paper.title.toLowerCase().includes(q)
+          || paper.authors.toLowerCase().includes(q)) {
+          matched.push(paper)
+        }
+      }
+    }
+
+    collection = matched.slice(0, limit)
+  } else {
+    // No query - just limit results
+    if (collection.length > limit) {
+      collection = collection.slice(0, limit)
+    }
+  }
+
+  // Category filter
+  if (params.category) {
+    collection = collection.filter((paper) =>
+      paper.category === params.category,
+    )
+  }
 
   const data: BiorxivSearchResult = {
     messages: {
       status: msgs?.status || 'ok',
       interval: msgs?.interval || '',
       cursor: msgs?.cursor || 0,
-      count: msgs?.count || collection.length,
-      total: msgs?.total || collection.length,
+      count: collection.length,
+      total: totalPapers,
     },
     collection,
-  }
-
-  // Client-side text filtering (API doesn't support full-text search)
-  if (params.q) {
-    const q = params.q.toLowerCase()
-    data.collection = data.collection.filter((paper) => {
-      return paper.title.toLowerCase().includes(q)
-        || paper.authors.toLowerCase().includes(q)
-    })
-    data.messages.count = data.collection.length
-  }
-
-  // Category filter
-  if (params.category) {
-    data.collection = data.collection.filter((paper) =>
-      paper.category === params.category,
-    )
-    data.messages.count = data.collection.length
-  }
-
-  // Limit results
-  if (params.limit && data.collection.length > params.limit) {
-    data.collection = data.collection.slice(0, params.limit)
   }
 
   return data
