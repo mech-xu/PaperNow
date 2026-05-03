@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import type { Document, SortOption, SupportedSource, ChinaRxivPaper } from '@/types'
 import { appConfig } from '@/config/app'
 import { searchPapers as searchChinaRxiv, getPaperPdfUrl } from '@/utils/chinarxiv'
+import { searchPapers as searchPubMed, fetchArticles as fetchPubMedArticles, getPubMedPdfUrl, type PubMedArticle } from '@/utils/pubmed'
 
 // Convert ChinaRxiv paper to Document type
 function chinaRxivToDocument(paper: ChinaRxivPaper): Document {
@@ -31,6 +32,31 @@ function chinaRxivToDocument(paper: ChinaRxivPaper): Document {
   }
 }
 
+// Convert PubMed article to Document type
+function pubMedToDocument(article: PubMedArticle): Document {
+  return {
+    id: `pmid:${article.pmid}`,
+    title: article.title,
+    abstract: article.abstract || null,
+    authors: article.authors.length > 0 ? article.authors : null,
+    keywords: null,
+    category: article.journal || null,
+    source: 'PubMed',
+    source_id: article.pmid,
+    publish_date: article.pubDate || null,
+    pdf_url: getPubMedPdfUrl(article.pmcId, article.doi),
+    citation_count: 0,
+    doi: article.doi,
+    metadata: {
+      journal: article.journal,
+      pmc_id: article.pmcId,
+      source_url: `https://pubmed.ncbi.nlm.nih.gov/${article.pmid}/`,
+    },
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  }
+}
+
 export const useSearchStore = defineStore('search', () => {
   // State
   const query = ref('')
@@ -41,7 +67,7 @@ export const useSearchStore = defineStore('search', () => {
   const hasMore = ref(false)
   const sortBy = ref<SortOption>('relevance')
   const selectedCategory = ref<string | null>(null)
-  const selectedSource = ref<SupportedSource | null>(null)
+  const selectedSource = ref<SupportedSource | null>('PubMed')
   const dateFrom = ref<string | null>(null)
   const dateTo = ref<string | null>(null)
   const error = ref<string | null>(null)
@@ -67,7 +93,7 @@ export const useSearchStore = defineStore('search', () => {
     error.value = null
 
     try {
-      const source = selectedSource.value || 'ChinaRxiv'
+      const source = selectedSource.value || 'PubMed'
       let documents: Document[] = []
       let resultTotal = 0
 
@@ -85,9 +111,29 @@ export const useSearchStore = defineStore('search', () => {
         resultTotal = result.total
         nextCursor = result.next_cursor
         hasMore.value = result.next_cursor !== null
+      } else if (source === 'PubMed') {
+        const offset = (page.value - 1) * appConfig.searchPageSize
+
+        // Step 1: ESearch to get PMIDs
+        const searchResult = await searchPubMed({
+          q: query.value,
+          fromDate: dateFrom.value || undefined,
+          toDate: dateTo.value || undefined,
+          retMax: appConfig.searchPageSize,
+          retStart: offset,
+        })
+
+        resultTotal = searchResult.total
+
+        // Step 2: EFetch to get article details
+        if (searchResult.ids.length > 0) {
+          const articles = await fetchPubMedArticles(searchResult.ids)
+          documents = articles.map(pubMedToDocument)
+        }
+
+        hasMore.value = (offset + appConfig.searchPageSize) < resultTotal
       } else {
-        // Other sources not yet implemented
-        error.value = `${source} search is not yet available. Try ChinaRxiv.`
+        error.value = `${source} search is not yet available. Try PubMed or ChinaRxiv.`
         hasMore.value = false
       }
 

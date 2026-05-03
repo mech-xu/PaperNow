@@ -2,22 +2,8 @@
   <view class="home-page">
     <!-- Header -->
     <view class="header">
-      <text class="logo">
-        PaperNow
-      </text>
-      <text class="subtitle">
-        预印本文献管理与协作平台
-      </text>
-    </view>
-
-    <!-- Search Entry -->
-    <view
-      class="search-entry"
-      @tap="goToSearch"
-    >
-      <text class="search-placeholder">
-        搜索论文、预印本...
-      </text>
+      <text class="logo">PaperNow</text>
+      <text class="subtitle">预印本文献管理与协作平台</text>
     </view>
 
     <!-- Quick Actions -->
@@ -26,54 +12,46 @@
         class="action-card"
         @tap="goToSearch"
       >
-        <text class="action-icon">
-          🔍
-        </text>
-        <text class="action-label">
-          搜索文献
-        </text>
+        <text class="action-icon">🔍</text>
+        <text class="action-label">搜索文献</text>
       </view>
       <view
         class="action-card"
         @tap="goToCollection"
       >
-        <text class="action-icon">
-          📚
-        </text>
-        <text class="action-label">
-          我的收藏
-        </text>
+        <text class="action-icon">📚</text>
+        <text class="action-label">我的收藏</text>
       </view>
       <view
         class="action-card"
         @tap="goToCollaboration"
       >
-        <text class="action-icon">
-          👥
-        </text>
-        <text class="action-label">
-          协作空间
-        </text>
+        <text class="action-icon">👥</text>
+        <text class="action-label">协作空间</text>
       </view>
     </view>
 
-    <!-- Sources -->
+    <!-- Source Selector -->
     <view class="sources">
-      <text class="section-title">
-        数据来源
-      </text>
+      <text class="section-title">数据来源</text>
       <view class="source-list">
         <view
-          v-for="source in sources"
+          v-for="source in availableSources"
           :key="source.name"
           class="source-item"
+          :class="{ active: selectedSource === source.name }"
+          @tap="selectedSource = source.name"
         >
-          <text class="source-name">
-            {{ source.name }}
-          </text>
-          <text class="source-desc">
-            {{ source.desc }}
-          </text>
+          <view class="source-info">
+            <text class="source-name">{{ source.name }}</text>
+            <text class="source-desc">{{ source.desc }}</text>
+          </view>
+          <view
+            class="source-radio"
+            :class="{ checked: selectedSource === source.name }"
+          >
+            <text v-if="selectedSource === source.name" class="radio-dot">●</text>
+          </view>
         </view>
       </view>
     </view>
@@ -98,19 +76,28 @@
 </template>
 
 <script setup lang="ts">
+import { ref, watch } from 'vue'
 import { useAuthStore } from '@/stores/auth'
+import { useSearchStore } from '@/stores/search'
+import type { SupportedSource } from '@/types'
 
 const auth = useAuthStore()
+const searchStore = useSearchStore()
 
-const sources = [
-  { name: 'arXiv', desc: '物理/数学/CS' },
+const availableSources: { name: SupportedSource; desc: string }[] = [
   { name: 'PubMed', desc: '生物医学' },
   { name: 'ChinaRxiv', desc: '中文预印本翻译' },
-  { name: 'bioRxiv', desc: '生物学预印本' },
-  { name: 'medRxiv', desc: '医学预印本' },
 ]
 
+const selectedSource = ref<SupportedSource>(searchStore.selectedSource || 'PubMed')
+
+// Sync source selection to searchStore
+watch(selectedSource, (val) => {
+  searchStore.selectedSource = val
+})
+
 function goToSearch() {
+  searchStore.selectedSource = selectedSource.value
   uni.switchTab({ url: '/pages/search/index' })
 }
 
@@ -161,19 +148,6 @@ function goToLogin() {
   display: block;
 }
 
-.search-entry {
-  background: #fff;
-  border-radius: 12px;
-  padding: 14px 16px;
-  margin-bottom: 24px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
-}
-
-.search-placeholder {
-  color: #999;
-  font-size: 16px;
-}
-
 .actions {
   display: flex;
   gap: 12px;
@@ -221,7 +195,7 @@ function goToLogin() {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px 16px;
+  padding: 14px 16px;
   border-bottom: 1px solid #f0f0f0;
 }
 
@@ -229,15 +203,47 @@ function goToLogin() {
   border-bottom: none;
 }
 
+.source-item.active {
+  background-color: #f0f7ff;
+}
+
+.source-info {
+  flex: 1;
+}
+
 .source-name {
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 500;
   color: #333;
+  display: block;
 }
 
 .source-desc {
   font-size: 12px;
   color: #999;
+  margin-top: 2px;
+  display: block;
+}
+
+.source-radio {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid #ccc;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 12px;
+}
+
+.source-radio.checked {
+  border-color: #0066cc;
+}
+
+.radio-dot {
+  font-size: 14px;
+  color: #0066cc;
+  line-height: 1;
 }
 
 .auth-status {
