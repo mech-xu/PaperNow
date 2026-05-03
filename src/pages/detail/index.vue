@@ -203,14 +203,26 @@ async function loadDocument() {
     if (fromSearch) {
       document.value = fromSearch
     } else {
-      // Fallback: check locally saved papers
+      // Fallback 1: check locally saved papers
       const localPaper = localStorage.getPaper(documentId.value)
       if (localPaper) {
         document.value = localPaper as unknown as Document
       } else {
-        error.value = '文献信息不可用，请重新搜索'
-        isLoading.value = false
-        return
+        // Fallback 2: fetch from Supabase documents table
+        const { supabase } = await import('@/utils/supabase')
+        const { data: dbDoc } = await supabase
+          .from('documents')
+          .select('*')
+          .eq('id', documentId.value)
+          .single()
+
+        if (dbDoc) {
+          document.value = dbDoc as Document
+        } else {
+          error.value = '文献信息不可用，请重新搜索'
+          isLoading.value = false
+          return
+        }
       }
     }
 
