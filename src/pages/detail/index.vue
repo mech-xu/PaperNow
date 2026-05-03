@@ -144,7 +144,7 @@
           :disabled="!hasPdf"
           @tap="hasPdf && handleDownloadPdf()"
         >
-          {{ hasPdf ? '下载 PDF' : 'PDF 不可用' }}
+          PDF
         </button>
       </view>
     </view>
@@ -246,6 +246,35 @@ async function handleCollect() {
   }
 }
 
+/**
+ * Sanitize date string for PostgreSQL DATE column.
+ * Handles: "2026 Apr", "2026 Apr 15", "2026-04-28", etc.
+ * Returns YYYY-MM-DD or null.
+ */
+function sanitizeDate(date: string | null | undefined): string | null {
+  if (!date) return null
+  // Already ISO format
+  if (/^\d{4}-\d{2}-\d{2}$/.test(date)) return date
+  // "2026 Apr" or "2026 Apr 15"
+  const monthMap: Record<string, string> = {
+    jan: '01', feb: '02', mar: '03', apr: '04', may: '05', jun: '06',
+    jul: '07', aug: '08', sep: '09', oct: '10', nov: '11', dec: '12',
+  }
+  const match = date.match(/^(\d{4})\s+(\w{3})(?:\s+(\d{1,2}))?$/i)
+  if (match) {
+    const year = match[1]
+    const month = monthMap[match[2].toLowerCase()]
+    const day = match[3] ? match[3].padStart(2, '0') : '01'
+    if (month) return `${year}-${month}-${day}`
+  }
+  // Try Date.parse as fallback
+  const parsed = new Date(date)
+  if (!isNaN(parsed.getTime())) {
+    return parsed.toISOString().split('T')[0]
+  }
+  return null
+}
+
 async function ensureDocumentInDb() {
   if (!document.value) return
 
@@ -261,7 +290,7 @@ async function ensureDocumentInDb() {
     category: doc.category,
     source: doc.source,
     source_id: doc.source_id,
-    publish_date: doc.publish_date,
+    publish_date: sanitizeDate(doc.publish_date),
     pdf_url: doc.pdf_url,
     citation_count: doc.citation_count,
     doi: doc.doi,
