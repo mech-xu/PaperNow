@@ -1,70 +1,91 @@
 <template>
   <view class="callback-page">
     <view class="loading">
-      <text class="loading-text">正在完成登录...</text>
+      <text class="loading-text">{{ statusText }}</text>
     </view>
   </view>
 </template>
 
 <script setup lang="ts">
-import { onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { supabase } from '@/utils/supabase'
 import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()
+const statusText = ref('正在完成登录...')
+
 let timeoutId: ReturnType<typeof setTimeout> | null = null
+let subscription: { unsubscribe: () => void } | null = null
 let handled = false
 
 function handleSuccess() {
   if (handled) return
   handled = true
-  uni.switchTab({ url: '/pages/home/index' })
+  statusText.value = '登录成功，正在跳转...'
+  uni.switchTab({
+    url: '/pages/home/index',
+    fail: () => {
+      // switchTab failed, try redirectTo as fallback
+      uni.redirectTo({ url: '/pages/home/index' })
+    },
+  })
 }
 
-function handleFailure() {
+function handleFailure(msg?: string) {
   if (handled) return
   handled = true
-  uni.redirectTo({ url: '/pages/auth/login' })
+  statusText.value = msg || '登录失败，正在返回...'
+  setTimeout(() => {
+    uni.redirectTo({ url: '/pages/auth/login' })
+  }, 1500)
 }
 
 onMounted(async () => {
   try {
-    // Set a timeout in case OAuth callback takes too long
+    // Timeout: if OAuth callback doesn't complete in 15s, fail
     timeoutId = setTimeout(() => {
-      handleFailure()
-    }, 10000)
+      handleFailure('登录超时，请重试')
+    }, 15000)
 
-    // Listen for the SIGNED_IN event from OAuth callback
-    // detectSessionInUrl: true will parse the hash fragment and fire this event
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event === 'SIGNED_IN' && session?.user) {
-        await auth.initialize()
-        if (auth.isAuthenticated) {
-          handleSuccess()
-        } else {
-          handleFailure()
+    // Listen for auth state changes from OAuth callback
+    // detectSessionInUrl: true will parse the URL hash and fire an event
+    // The event can be INITIAL_SESSION (if session found in URL) or SIGNED_IN
+    const { data } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && session?.user) {
+        try {
+          await auth.initialize()
+          if (auth.isAuthenticated) {
+            handleSuccess()
+          } else {
+            handleFailure('认证信息不完整')
+          }
+        } catch {
+          handleFailure('获取用户信息失败')
         }
       }
     })
+    subscription = data.subscription
 
     // Also check if session already exists (e.g. user refreshed the page)
     const { data: { session } } = await supabase.auth.getSession()
-    if (session?.user) {
-      await auth.initialize()
-      if (auth.isAuthenticated) {
-        handleSuccess()
-        return
+    if (session?.user && !handled) {
+      try {
+        await auth.initialize()
+        if (auth.isAuthenticated) {
+          handleSuccess()
+        }
+      } catch {
+        // Will rely on onAuthStateChange or timeout
       }
     }
-
-    // Clean up subscription on unmount
-    onUnmounted(() => {
-      subscription.unsubscribe()
-      if (timeoutId) clearTimeout(timeoutId)
-    })
-  } catch (_err) {
-    handleFailure()
+  } catch {
+    handleFailure('登录过程出错')
   }
+})
+
+onUnmounted(() => {
+  subscription?.unsubscribe()
+  if (timeoutId) clearTimeout(timeoutId)
 })
 </script>
 
