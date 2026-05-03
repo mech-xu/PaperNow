@@ -149,7 +149,7 @@ export const useAuthStore = defineStore('auth', () => {
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider: 'github',
       options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
+        redirectTo: `${window.location.origin}/pages/auth/callback`,
       },
     })
     if (error) throw new Error(getErrorMessage(error))
