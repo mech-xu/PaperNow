@@ -151,8 +151,10 @@ onUnmounted(() => {
 watch(sentinelRef, (el) => {
   if (observer) {
     observer.disconnect()
-    if (el) {
-      observer.observe(el)
+    // UniApp H5: ref may return a non-Element wrapper, get actual DOM element
+    const domEl = (el as any)?.$el ?? el
+    if (domEl instanceof Element) {
+      observer.observe(domEl)
     }
   }
 })
