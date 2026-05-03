@@ -126,7 +126,8 @@
       <!-- Actions -->
       <view class="actions">
         <button
-          class="btn btn-primary"
+          class="btn"
+          :class="isCollected ? 'btn-collected' : 'btn-uncollected'"
           @tap="handleCollect"
         >
           {{ isCollected ? '★ 已收藏' : '☆ 收藏' }}
@@ -468,6 +469,17 @@ function openSourceUrl() {
 }
 
 .btn-primary {
+  background: #0066cc;
+  color: #fff;
+}
+
+.btn-uncollected {
+  background: #fff;
+  color: #0066cc;
+  border: 1px solid #0066cc;
+}
+
+.btn-collected {
   background: #0066cc;
   color: #fff;
 }
