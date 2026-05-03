@@ -1,0 +1,164 @@
+name: Deploy PaperNow
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  # Lint & Type Check
+  quality:
+    name: Quality Checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npm run type-check
+
+      - name: Lint
+        run: npm run lint
+
+  # Unit Tests
+  test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    needs: quality
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm run test:unit
+
+  # Build & Deploy to Cloudflare Pages
+  deploy:
+    name: Build & Deploy to Cloudflare Pages
+    runs-on: ubuntu-latest
+    needs: [quality, test]
+    if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.event_name == 'workflow_dispatch' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build:prod
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_APP_URL: https://papernow.sunnynow.net
+          VITE_API_URL: https://api.papernow.sunnynow.net
+
+      # ============================================
+      # 构建产物验证：确保 SPA 部署关键文件存在
+      # ============================================
+      - name: Verify build output for Cloudflare Pages
+        run: |
+          echo "🔍 验证构建产物..."
+          BUILD_DIR="dist/build/h5"
+          
+          if [ ! -d "$BUILD_DIR" ]; then echo "❌ $BUILD_DIR 不存在"; exit 1; fi
+          echo "✅ $BUILD_DIR 目录存在"
+          
+          if [ ! -f "$BUILD_DIR/index.html" ]; then echo "❌ $BUILD_DIR/index.html 不存在"; exit 1; fi
+          echo "✅ $BUILD_DIR/index.html 存在"
+          
+          if [ ! -f "$BUILD_DIR/_redirects" ]; then echo "❌ $BUILD_DIR/_redirects 不存在！SPA 子路由将 404"; exit 1; fi
+          echo "✅ $BUILD_DIR/_redirects 存在（SPA 路由重写已配置）"
+          
+          if [ -f "$BUILD_DIR/_headers" ]; then echo "✅ $BUILD_DIR/_headers 存在"; else echo "⚠️  $BUILD_DIR/_headers 不存在"; fi
+          
+          if ! grep -q "/index.html 200" "$BUILD_DIR/_redirects"; then echo "❌ _redirects 缺少 SPA fallback"; exit 1; fi
+          echo "✅ _redirects 包含 SPA fallback 规则"
+          
+          echo ""
+          echo "📦 构建产物摘要："
+          echo "   JS files:   $(find $BUILD_DIR/assets -name '*.js' 2>/dev/null | wc -l | tr -d ' ')"
+          echo "   CSS files:  $(find $BUILD_DIR/assets -name '*.css' 2>/dev/null | wc -l | tr -d ' ')"
+          echo "🚀 构建验证通过"
+
+      - name: Deploy Frontend to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          command: pages deploy dist/build/h5 --project-name=papernow
+
+      - name: Deploy API Worker to Cloudflare
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          command: deploy
+
+      # ============================================
+      # 部署后验证：确认子域名和 SPA 路由正常
+      # ============================================
+      - name: Verify deployment
+        run: |
+          echo "🔍 验证部署结果..."
+          
+          # 验证前端子域名
+          FRONTEND_URL="https://papernow.sunnynow.net"
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$FRONTEND_URL")
+          if [ "$HTTP_CODE" != "200" ]; then echo "⚠️  前端返回 HTTP $HTTP_CODE"; else echo "✅ 前端 papernow.sunnynow.net 正常"; fi
+          
+          # 验证 SPA 子路由
+          SPA_ROUTE="$FRONTEND_URL/pages/search/index"
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$SPA_ROUTE")
+          if [ "$HTTP_CODE" != "200" ]; then echo "⚠️  SPA 子路由返回 HTTP $HTTP_CODE"; else echo "✅ SPA 子路由正常 (_redirects 生效)"; fi
+          
+          # 验证 API 子域名
+          API_URL="https://api.papernow.sunnynow.net"
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$API_URL/health")
+          if [ "$HTTP_CODE" != "200" ]; then echo "⚠️  API 返回 HTTP $HTTP_CODE"; else echo "✅ API api.papernow.sunnynow.net 正常"; fi
+          
+          # 验证 CORS
+          CORS_HEADER=$(curl -s -I -H "Origin: https://papernow.sunnynow.net" "$API_URL/health" | grep -i "access-control-allow-origin" || echo "")
+          if [ -n "$CORS_HEADER" ]; then echo "✅ CORS 配置正确: $CORS_HEADER"; else echo "⚠️  CORS 头未设置"; fi
+          
+          # 验证 HSTS
+          HSTS=$(curl -s -I "$FRONTEND_URL" | grep -i "strict-transport-security" || echo "")
+          if [ -n "$HSTS" ]; then echo "✅ HSTS 已启用"; else echo "⚠️  HSTS 未设置"; fi
+
+  # Deploy Supabase Edge Functions
+  deploy-functions:
+    name: Deploy Supabase Functions
+    runs-on: ubuntu-latest
+    needs: deploy
+    if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Deploy functions
+        run: supabase functions deploy
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}

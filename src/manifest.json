@@ -1,0 +1,23 @@
+{
+  "name": "PaperNow",
+  "appid": "",
+  "description": "Preprint literature management & collaboration platform",
+  "versionName": "0.1.0",
+  "versionCode": "100",
+  "transformPx": false,
+  "h5": {
+    "title": "PaperNow",
+    "router": {
+      "mode": "history",
+      "base": "/"
+    },
+    "devServer": {
+      "port": 5173,
+      "https": false
+    },
+    "sdkConfigs": {},
+    "async": {
+      "timeout": 20000
+    }
+  }
+}

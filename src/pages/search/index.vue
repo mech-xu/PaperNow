@@ -1,0 +1,292 @@
+<template>
+  <view class="search-page">
+    <!-- Search Bar -->
+    <SearchBar
+      v-model="searchStore.query"
+      :is-disabled="searchStore.isLoading"
+      @search="handleSearch"
+    />
+
+    <!-- Filter Toggle -->
+    <view class="filter-toggle">
+      <text
+        class="toggle-btn"
+        :class="{ active: showFilters }"
+        @tap="showFilters = !showFilters"
+      >
+        {{ showFilters ? '收起筛选' : '筛选' }}
+      </text>
+      <text
+        v-if="hasActiveFilters"
+        class="filter-indicator"
+      >
+        ●
+      </text>
+    </view>
+
+    <!-- Filter Panel -->
+    <view
+      v-if="showFilters"
+      class="filter-container"
+    >
+      <FilterPanel
+        :selected-source="searchStore.selectedSource"
+        :date-from="searchStore.dateFrom"
+        :date-to="searchStore.dateTo"
+        :sort-by="searchStore.sortBy"
+        @update:selected-source="handleFilterChange('source', $event)"
+        @update:date-from="handleFilterChange('dateFrom', $event)"
+        @update:date-to="handleFilterChange('dateTo', $event)"
+        @update:sort-by="handleFilterChange('sortBy', $event)"
+        @reset="handleResetFilters"
+      />
+    </view>
+
+    <!-- Results -->
+    <view class="results-container">
+      <!-- Empty State (no search yet) -->
+      <view
+        v-if="!searchStore.query && searchStore.results.length === 0"
+        class="empty-state"
+      >
+        <text class="empty-icon">🔍</text>
+        <text class="empty-text">输入关键词搜索预印本文献</text>
+      </view>
+
+      <!-- No Results -->
+      <view
+        v-else-if="!searchStore.isLoading && searchStore.results.length === 0 && searchStore.query"
+        class="empty-state"
+      >
+        <text class="empty-icon">📭</text>
+        <text class="empty-text">未找到相关文献</text>
+        <text class="empty-hint">尝试使用不同的关键词或调整筛选条件</text>
+      </view>
+
+      <!-- Result List -->
+      <view
+        v-for="doc in searchStore.results"
+        :key="doc.id"
+      >
+        <PaperCard
+          :document="doc"
+          @tap="goToDetail"
+        />
+      </view>
+
+      <!-- Loading -->
+      <view
+        v-if="searchStore.isLoading"
+        class="loading"
+      >
+        <text class="loading-text">搜索中...</text>
+      </view>
+
+      <!-- Load More Sentinel (Intersection Observer) -->
+      <view
+        v-if="searchStore.hasMore && !searchStore.isLoading"
+        ref="sentinelRef"
+        class="load-more-sentinel"
+      />
+
+      <!-- Loading More -->
+      <view
+        v-if="searchStore.isLoading && searchStore.results.length > 0"
+        class="loading"
+      >
+        <text class="loading-text">加载更多...</text>
+      </view>
+
+      <!-- No More -->
+      <view
+        v-if="!searchStore.hasMore && searchStore.results.length > 0"
+        class="no-more"
+      >
+        <text class="no-more-text">没有更多结果了</text>
+      </view>
+    </view>
+  </view>
+</template>
+
+<script setup lang="ts">
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { useSearchStore } from '@/stores/search'
+import SearchBar from '@/components/common/SearchBar.vue'
+import FilterPanel from '@/components/common/FilterPanel.vue'
+import PaperCard from '@/components/business/PaperCard.vue'
+import type { Document, SupportedSource, SortOption } from '@/types'
+
+const searchStore = useSearchStore()
+const showFilters = ref(false)
+
+// Infinite scroll with Intersection Observer
+const sentinelRef = ref<HTMLElement | null>(null)
+let observer: IntersectionObserver | null = null
+
+onMounted(() => {
+  observer = new IntersectionObserver(
+    (entries) => {
+      const entry = entries[0]
+      if (entry?.isIntersecting && searchStore.hasMore && !searchStore.isLoading) {
+        searchStore.loadMore()
+      }
+    },
+    { rootMargin: '200px', threshold: 0 },
+  )
+})
+
+onUnmounted(() => {
+  observer?.disconnect()
+})
+
+// Watch sentinel ref to connect observer
+watch(sentinelRef, (el) => {
+  if (observer) {
+    observer.disconnect()
+    if (el) {
+      observer.observe(el)
+    }
+  }
+})
+
+const hasActiveFilters = computed(() => {
+  return searchStore.selectedSource !== null
+    || searchStore.dateFrom !== null
+    || searchStore.dateTo !== null
+    || searchStore.sortBy !== 'relevance'
+})
+
+function handleSearch(query: string) {
+  if (!query.trim()) return
+  searchStore.search(query)
+}
+
+function handleFilterChange(filter: string, value: unknown) {
+  switch (filter) {
+    case 'source':
+      searchStore.selectedSource = value as SupportedSource | null
+      break
+    case 'dateFrom':
+      searchStore.dateFrom = value as string | null
+      break
+    case 'dateTo':
+      searchStore.dateTo = value as string | null
+      break
+    case 'sortBy':
+      searchStore.sortBy = value as SortOption
+      break
+  }
+  // Re-search with new filters if there's a query
+  if (searchStore.query) {
+    searchStore.search()
+  }
+}
+
+function handleResetFilters() {
+  searchStore.resetFilters()
+  if (searchStore.query) {
+    searchStore.search()
+  }
+}
+
+function goToDetail(doc: Document) {
+  uni.navigateTo({ url: `/pages/detail/index?id=${doc.id}` })
+}
+</script>
+
+<style scoped>
+.search-page {
+  min-height: 100vh;
+  background-color: #f5f5f5;
+  padding-bottom: 16px;
+}
+
+.filter-toggle {
+  display: flex;
+  align-items: center;
+  padding: 8px 16px;
+}
+
+.toggle-btn {
+  font-size: 13px;
+  color: #0066cc;
+  font-weight: 500;
+}
+
+.toggle-btn.active {
+  color: #666;
+}
+
+.filter-indicator {
+  font-size: 10px;
+  color: #0066cc;
+  margin-left: 4px;
+}
+
+.filter-container {
+  padding: 0 16px 12px;
+}
+
+.results-container {
+  padding: 0 16px;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 60px 24px;
+}
+
+.empty-icon {
+  font-size: 48px;
+  display: block;
+  margin-bottom: 16px;
+}
+
+.empty-text {
+  font-size: 16px;
+  color: #666;
+  display: block;
+  margin-bottom: 8px;
+}
+
+.empty-hint {
+  font-size: 13px;
+  color: #999;
+  display: block;
+}
+
+.loading {
+  text-align: center;
+  padding: 24px;
+}
+
+.loading-text {
+  font-size: 14px;
+  color: #999;
+}
+
+.load-more {
+  text-align: center;
+  padding: 16px;
+}
+
+.load-more-text {
+  font-size: 14px;
+  color: #0066cc;
+}
+
+.load-more-sentinel {
+  height: 1px;
+  width: 100%;
+}
+
+.no-more {
+  text-align: center;
+  padding: 16px;
+}
+
+.no-more-text {
+  font-size: 13px;
+  color: #ccc;
+}
+</style>

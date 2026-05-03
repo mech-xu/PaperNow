@@ -1,0 +1,23 @@
+name = "papernow-api"
+main = "src/api/index.ts"
+compatibility_date = "2024-12-01"
+compatibility_flags = ["nodejs_compat"]
+
+# ============================================
+# 路由配置 - api.papernow.sunnynow.net
+# ============================================
+# Cloudflare Worker 通过 Custom Domain 绑定：
+# - 生产: api.papernow.sunnynow.net
+# - 开发: api-dev.papernow.sunnynow.net
+# ============================================
+
+[vars]
+APP_NAME = "PaperNow"
+APP_VERSION = "v1"
+API_PREFIX = "/v1"
+# 前端域名（CORS Allow-Origin）
+FRONTEND_DOMAIN = "papernow.sunnynow.net"
+
+# Secrets (set via `wrangler secret put`):
+# - SUPABASE_URL
+# - SUPABASE_SERVICE_KEY
