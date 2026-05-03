@@ -314,6 +314,21 @@ export default {
             // PubMed ID: redirect to PubMed page (no direct PDF for most)
             const pmid = paperId.replace('pmid:', '')
             return Response.redirect(`https://pubmed.ncbi.nlm.nih.gov/${pmid}/`, 302)
+          } else if (paperId.startsWith('arxiv:')) {
+            // arXiv: always has PDF
+            const arxivId = paperId.replace('arxiv:', '')
+            pdfUrl = `https://arxiv.org/pdf/${arxivId}.pdf`
+            sourceId = arxivId
+          } else if (paperId.startsWith('biorxiv:')) {
+            // bioRxiv: DOI-based PDF
+            const doi = paperId.replace('biorxiv:', '')
+            pdfUrl = `https://www.biorxiv.org/content/${doi}v1.full.pdf`
+            sourceId = doi
+          } else if (paperId.startsWith('medrxiv:')) {
+            // medRxiv: DOI-based PDF
+            const doi = paperId.replace('medrxiv:', '')
+            pdfUrl = `https://www.medrxiv.org/content/${doi}v1.full.pdf`
+            sourceId = doi
           } else {
             return jsonResponse({ error: 'Not Found', message: `Paper ${paperId} not found` }, 404, headers)
           }
@@ -445,6 +460,53 @@ export default {
             .map(([category, count]) => ({ category, count }))
             .sort((a, b) => b.count - a.count),
         }, 200, headers)
+      }
+
+      // ============================================
+      // GET /v1/proxy - External API proxy (CORS bypass)
+      // ============================================
+      if (path === '/proxy' && request.method === 'GET') {
+        const targetUrl = url.searchParams.get('url')
+        if (!targetUrl) {
+          return jsonResponse({ error: 'Bad Request', message: 'Missing url parameter' }, 400, headers)
+        }
+
+        // Only allow whitelisted domains
+        const allowedDomains = [
+          'export.arxiv.org',       // arXiv API
+          'api.biorxiv.org',       // bioRxiv/medRxiv API
+        ]
+        const targetHost = new URL(targetUrl).hostname
+        if (!allowedDomains.includes(targetHost)) {
+          return jsonResponse({ error: 'Forbidden', message: `Domain ${targetHost} is not allowed` }, 403, headers)
+        }
+
+        try {
+          const proxyResponse = await fetch(targetUrl, {
+            headers: {
+              'User-Agent': 'PaperNow/1.0 (mailto:papernow@sunnynow.net)',
+            },
+            redirect: 'follow',
+          })
+
+          if (!proxyResponse.ok) {
+            return jsonResponse({ error: 'Proxy Fetch Failed', message: `Upstream returned ${proxyResponse.status}` }, 502, headers)
+          }
+
+          const proxyHeaders = new Headers(headers)
+          const contentType = proxyResponse.headers.get('Content-Type')
+          if (contentType) proxyHeaders.set('Content-Type', contentType)
+
+          return new Response(proxyResponse.body, {
+            status: 200,
+            headers: proxyHeaders,
+          })
+        } catch (fetchError) {
+          return jsonResponse({
+            error: 'Proxy Fetch Failed',
+            message: fetchError instanceof Error ? fetchError.message : 'Network error',
+          }, 502, headers)
+        }
       }
 
       // Route not found within API v1

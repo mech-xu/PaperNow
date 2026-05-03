@@ -4,6 +4,8 @@ import type { Document, SortOption, SupportedSource, ChinaRxivPaper } from '@/ty
 import { appConfig } from '@/config/app'
 import { searchPapers as searchChinaRxiv, getPaperPdfUrl } from '@/utils/chinarxiv'
 import { searchPapers as searchPubMed, fetchArticles as fetchPubMedArticles, getPubMedPdfUrl, type PubMedArticle } from '@/utils/pubmed'
+import { searchPapers as searchArxiv, arxivToDocument } from '@/utils/arxiv'
+import { searchPapers as searchBiorxiv, biorxivToDocument } from '@/utils/biorxiv'
 
 // Convert ChinaRxiv paper to Document type
 function chinaRxivToDocument(paper: ChinaRxivPaper): Document {
@@ -51,6 +53,7 @@ function pubMedToDocument(article: PubMedArticle): Document {
       journal: article.journal,
       pmc_id: article.pmcId,
       source_url: `https://pubmed.ncbi.nlm.nih.gov/${article.pmid}/`,
+      has_pdf: !!article.pmcId,
     },
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
@@ -67,7 +70,7 @@ export const useSearchStore = defineStore('search', () => {
   const hasMore = ref(false)
   const sortBy = ref<SortOption>('relevance')
   const selectedCategory = ref<string | null>(null)
-  const selectedSource = ref<SupportedSource | null>('PubMed')
+  const selectedSource = ref<SupportedSource | null>('ChinaRxiv')
   const dateFrom = ref<string | null>(null)
   const dateTo = ref<string | null>(null)
   const error = ref<string | null>(null)
@@ -93,7 +96,7 @@ export const useSearchStore = defineStore('search', () => {
     error.value = null
 
     try {
-      const source = selectedSource.value || 'PubMed'
+      const source = selectedSource.value || 'ChinaRxiv'
       let documents: Document[] = []
       let resultTotal = 0
 
@@ -114,7 +117,6 @@ export const useSearchStore = defineStore('search', () => {
       } else if (source === 'PubMed') {
         const offset = (page.value - 1) * appConfig.searchPageSize
 
-        // Step 1: ESearch to get PMIDs
         const searchResult = await searchPubMed({
           q: query.value,
           fromDate: dateFrom.value || undefined,
@@ -125,15 +127,45 @@ export const useSearchStore = defineStore('search', () => {
 
         resultTotal = searchResult.total
 
-        // Step 2: EFetch to get article details
         if (searchResult.ids.length > 0) {
           const articles = await fetchPubMedArticles(searchResult.ids)
           documents = articles.map(pubMedToDocument)
         }
 
         hasMore.value = (offset + appConfig.searchPageSize) < resultTotal
+      } else if (source === 'arXiv') {
+        const offset = (page.value - 1) * appConfig.searchPageSize
+
+        const searchResult = await searchArxiv({
+          q: query.value,
+          category: selectedCategory.value || undefined,
+          fromDate: dateFrom.value || undefined,
+          toDate: dateTo.value || undefined,
+          retMax: appConfig.searchPageSize,
+          retStart: offset,
+        })
+
+        documents = searchResult.articles.map(arxivToDocument)
+        resultTotal = searchResult.total
+        hasMore.value = (offset + appConfig.searchPageSize) < resultTotal
+      } else if (source === 'bioRxiv' || source === 'medRxiv') {
+        const server = source === 'medRxiv' ? 'medrxiv' : 'biorxiv'
+        const cursor = resetPage ? 0 : (page.value - 1) * appConfig.searchPageSize
+
+        const result = await searchBiorxiv(server, {
+          q: query.value,
+          category: selectedCategory.value || undefined,
+          fromDate: dateFrom.value || undefined,
+          toDate: dateTo.value || undefined,
+          cursor,
+          limit: appConfig.searchPageSize,
+        })
+
+        documents = result.collection.map((p) => biorxivToDocument(p, source))
+        resultTotal = result.messages.total
+        hasMore.value = (cursor + appConfig.searchPageSize) < result.messages.total
       } else {
-        error.value = `${source} search is not yet available. Try PubMed or ChinaRxiv.`
+        error.value = `${source} search is not yet available.`
         hasMore.value = false
       }
 
@@ -160,7 +192,6 @@ export const useSearchStore = defineStore('search', () => {
 
   function resetFilters() {
     selectedCategory.value = null
-    selectedSource.value = null
     dateFrom.value = null
     dateTo.value = null
     sortBy.value = 'relevance'

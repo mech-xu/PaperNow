@@ -138,11 +138,12 @@
           {{ isLocalSaved ? '已保存' : '本地保存' }}
         </button>
         <button
-          v-if="document.pdf_url"
           class="btn btn-secondary"
-          @tap="handleDownloadPdf"
+          :class="{ 'btn-disabled': !hasPdf }"
+          :disabled="!hasPdf"
+          @tap="hasPdf && handleDownloadPdf()"
         >
-          下载 PDF
+          {{ hasPdf ? '下载 PDF' : 'PDF 不可用' }}
         </button>
       </view>
     </view>
@@ -169,6 +170,15 @@ const error = ref('')
 const isCollected = ref(false)
 const isLocalSaved = ref(false)
 const documentId = ref('')
+
+const hasPdf = computed(() => {
+  if (!document.value) return false
+  // Check explicit has_pdf flag in metadata
+  const meta = document.value.metadata as Record<string, unknown> | undefined
+  if (meta?.has_pdf === false) return false
+  // Check if pdf_url exists
+  return !!document.value.pdf_url
+})
 
 const sourceUrl = computed(() => {
   const meta = document.value?.metadata as Record<string, unknown> | undefined
@@ -466,5 +476,12 @@ function openSourceUrl() {
   background: #fff;
   color: #0066cc;
   border: 1px solid #0066cc;
+}
+
+.btn-disabled {
+  background: #f5f5f5;
+  color: #ccc;
+  border-color: #e0e0e0;
+  cursor: not-allowed;
 }
 </style>
