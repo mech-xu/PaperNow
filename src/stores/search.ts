@@ -152,17 +152,10 @@ export const useSearchStore = defineStore('search', () => {
         const server = source === 'medRxiv' ? 'medrxiv' : 'biorxiv'
         const cursor = resetPage ? 0 : (page.value - 1) * appConfig.searchPageSize
 
-        // Default to last 12 months for bioRxiv/medRxiv (full range is too slow)
-        const defaultFromDate = (() => {
-          const d = new Date()
-          d.setFullYear(d.getFullYear() - 1)
-          return d.toISOString().split('T')[0]
-        })()
-
         const result = await searchBiorxiv(server, {
           q: query.value,
           category: selectedCategory.value || undefined,
-          fromDate: dateFrom.value || defaultFromDate,
+          fromDate: dateFrom.value || undefined,
           toDate: dateTo.value || undefined,
           cursor,
           limit: appConfig.searchPageSize,
@@ -179,9 +172,18 @@ export const useSearchStore = defineStore('search', () => {
       total.value = resultTotal
 
       if (resetPage) {
-        results.value = documents
+        // Dedup initial results by id
+        const seen = new Set<string>()
+        results.value = documents.filter(d => {
+          if (seen.has(d.id)) return false
+          seen.add(d.id)
+          return true
+        })
       } else {
-        results.value.push(...documents)
+        // Dedup when appending (avoid duplicates from pagination)
+        const existingIds = new Set(results.value.map(d => d.id))
+        const newDocs = documents.filter(d => !existingIds.has(d.id))
+        results.value.push(...newDocs)
       }
     } catch (err) {
       error.value = err instanceof Error ? err.message : 'Search failed'

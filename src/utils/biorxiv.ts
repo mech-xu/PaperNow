@@ -37,7 +37,7 @@ export interface BiorxivSearchResult {
  * Search bioRxiv or medRxiv papers
  * API: /details/{server}/{from_date}/{to_date}/{cursor}
  * Note: API has no search query param - returns all papers in date range.
- * We fetch multiple pages and filter client-side until we have enough results.
+ * We use a short date range (recent) and filter client-side.
  */
 export async function searchPapers(
   server: 'biorxiv' | 'medrxiv',
@@ -50,13 +50,13 @@ export async function searchPapers(
     limit?: number        // default 30, max 100
   },
 ): Promise<BiorxivSearchResult> {
-  const fromDate = params.fromDate || '2013-11-01'  // bioRxiv started Nov 2013
-  const toDate = params.toDate || '2099-12-31'
+  const fromDate = params.fromDate || getDefaultFromDate()
+  const toDate = params.toDate || getToday()
   const cursor = params.cursor || 0
   const limit = params.limit || 30
-  const maxPages = 5  // fetch up to 5 pages to find enough matches
 
   // API format: /details/{server}/{from_date}/{to_date}/{cursor}
+  // Note: API returns fixed 30 items per page, no count parameter
   const url = `${API_BASE}/details/${server}/${fromDate}/${toDate}/${cursor}`
 
   // Use API proxy to bypass CORS
@@ -71,12 +71,16 @@ export async function searchPapers(
   let collection: BiorxivPaper[] = raw.collection || []
   const totalPapers = msgs?.total || collection.length
 
+  // Deduplicate by DOI (API returns multiple versions of same paper)
+  collection = deduplicateByDoi(collection)
+
   // Client-side text filtering (API doesn't support full-text search)
   if (params.q) {
     const q = params.q.toLowerCase()
     const matched: BiorxivPaper[] = []
     let currentCursor = cursor
     let pagesFetched = 1
+    const maxPages = 10 // fetch up to 10 pages (300 papers) to find matches
 
     // Filter first page
     for (const paper of collection) {
@@ -87,7 +91,7 @@ export async function searchPapers(
     }
 
     // Fetch more pages until we have enough matches or hit max pages
-    while (matched.length < limit && pagesFetched < maxPages && currentCursor + collection.length < totalPapers) {
+    while (matched.length < limit && pagesFetched < maxPages) {
       currentCursor += collection.length
       const nextUrl = `${API_BASE}/details/${server}/${fromDate}/${toDate}/${currentCursor}`
       const nextProxyUrl = `${PROXY_URL}?url=${encodeURIComponent(nextUrl)}`
@@ -98,27 +102,34 @@ export async function searchPapers(
       if (collection.length === 0) break
       pagesFetched++
 
+      // Deduplicate and filter
+      collection = deduplicateByDoi(collection)
       for (const paper of collection) {
         if (paper.title.toLowerCase().includes(q)
           || paper.authors.toLowerCase().includes(q)) {
-          matched.push(paper)
+          if (!matched.some(m => m.doi === paper.doi)) {
+            matched.push(paper)
+          }
         }
       }
     }
 
     collection = matched.slice(0, limit)
-  } else {
-    // No query - just limit results
-    if (collection.length > limit) {
-      collection = collection.slice(0, limit)
-    }
   }
+
+  // Final dedup by DOI to ensure no duplicates
+  collection = deduplicateByDoi(collection)
 
   // Category filter
   if (params.category) {
     collection = collection.filter((paper) =>
       paper.category === params.category,
     )
+  }
+
+  // Limit results
+  if (collection.length > limit) {
+    collection = collection.slice(0, limit)
   }
 
   const data: BiorxivSearchResult = {
@@ -133,6 +144,30 @@ export async function searchPapers(
   }
 
   return data
+}
+
+/**
+ * Deduplicate papers by DOI, keeping the latest version
+ */
+function deduplicateByDoi(papers: BiorxivPaper[]): BiorxivPaper[] {
+  const seen = new Map<string, BiorxivPaper>()
+  for (const paper of papers) {
+    const existing = seen.get(paper.doi)
+    if (!existing || Number(paper.version) > Number(existing.version)) {
+      seen.set(paper.doi, paper)
+    }
+  }
+  return Array.from(seen.values())
+}
+
+function getDefaultFromDate(): string {
+  const d = new Date()
+  d.setMonth(d.getMonth() - 6) // Last 6 months for reasonable match rate
+  return d.toISOString().split('T')[0]
+}
+
+function getToday(): string {
+  return new Date().toISOString().split('T')[0]
 }
 
 /**
