@@ -109,6 +109,20 @@
         </text>
       </view>
 
+      <!-- Source URL -->
+      <view
+        v-if="sourceUrl"
+        class="section"
+      >
+        <text class="section-label">原文链接</text>
+        <text
+          class="doi-link"
+          @tap="openSourceUrl"
+        >
+          {{ sourceUrl }}
+        </text>
+      </view>
+
       <!-- Actions -->
       <view class="actions">
         <button
@@ -136,15 +150,16 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
-import { supabase } from '@/utils/supabase'
 import { useAuthStore } from '@/stores/auth'
+import { useSearchStore } from '@/stores/search'
 import { useCollectionStore } from '@/stores/collection'
 import { useLocalStorage } from '@/composables/useLocalStorage'
 import type { Document } from '@/types'
 
 const auth = useAuthStore()
+const searchStore = useSearchStore()
 const collectionStore = useCollectionStore()
 const localStorage = useLocalStorage()
 
@@ -154,6 +169,11 @@ const error = ref('')
 const isCollected = ref(false)
 const isLocalSaved = ref(false)
 const documentId = ref('')
+
+const sourceUrl = computed(() => {
+  const meta = document.value?.metadata as Record<string, unknown> | undefined
+  return (meta?.source_url as string) || null
+})
 
 onLoad((query) => {
   if (query?.id) {
@@ -167,26 +187,24 @@ async function loadDocument() {
   error.value = ''
 
   try {
-    const { data, error: err } = await supabase
-      .from('documents')
-      .select('*')
-      .eq('id', documentId.value)
-      .single()
-
-    if (err) throw err
-    document.value = data as Document
-
-    // Check if collected (from store or direct query)
-    isCollected.value = collectionStore.isCollected(documentId.value)
-    if (!isCollected.value && auth.isAuthenticated) {
-      const { data: coll } = await supabase
-        .from('user_collections')
-        .select('id')
-        .eq('document_id', documentId.value)
-        .eq('user_id', auth.user!.id)
-        .single()
-      isCollected.value = !!coll
+    // First: check searchStore results (from external API)
+    const fromSearch = searchStore.results.find(d => d.id === documentId.value)
+    if (fromSearch) {
+      document.value = fromSearch
+    } else {
+      // Fallback: check locally saved papers
+      const localPaper = localStorage.getPaper(documentId.value)
+      if (localPaper) {
+        document.value = localPaper as unknown as Document
+      } else {
+        error.value = '文献信息不可用，请重新搜索'
+        isLoading.value = false
+        return
+      }
     }
+
+    // Check if collected
+    isCollected.value = collectionStore.isCollected(documentId.value)
 
     // Check if locally saved
     isLocalSaved.value = localStorage.isPaperSaved(documentId.value)
@@ -203,13 +221,50 @@ async function handleCollect() {
     return
   }
 
+  if (!document.value) return
+
   try {
+    // Ensure document exists in Supabase before toggling collection
+    await ensureDocumentInDb()
+
     const nowCollected = await collectionStore.toggleCollection(documentId.value)
     isCollected.value = nowCollected
     uni.showToast({ title: nowCollected ? '已收藏' : '已取消收藏', icon: 'none' })
   } catch (err) {
     uni.showToast({ title: '操作失败', icon: 'none' })
   }
+}
+
+async function ensureDocumentInDb() {
+  if (!document.value) return
+
+  // Check if document already exists in Supabase
+  const { supabase } = await import('@/utils/supabase')
+  const { data } = await supabase
+    .from('documents')
+    .select('id')
+    .eq('id', documentId.value)
+    .single()
+
+  if (data) return // Already exists
+
+  // Insert document into Supabase
+  const doc = document.value
+  await supabase.from('documents').insert({
+    id: doc.id,
+    title: doc.title,
+    abstract: doc.abstract,
+    authors: doc.authors,
+    keywords: doc.keywords,
+    category: doc.category,
+    source: doc.source,
+    source_id: doc.source_id,
+    publish_date: doc.publish_date,
+    pdf_url: doc.pdf_url,
+    citation_count: doc.citation_count,
+    doi: doc.doi,
+    metadata: doc.metadata,
+  })
 }
 
 function handleLocalSave() {
@@ -247,6 +302,12 @@ function handleDownloadPdf() {
 function openDoi() {
   if (document.value?.doi) {
     window.open(`https://doi.org/${document.value.doi}`, '_blank')
+  }
+}
+
+function openSourceUrl() {
+  if (sourceUrl.value) {
+    window.open(sourceUrl.value, '_blank')
   }
 }
 </script>

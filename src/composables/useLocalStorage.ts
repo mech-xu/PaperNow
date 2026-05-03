@@ -140,6 +140,13 @@ export function useLocalStorage() {
   }
 
   /**
+   * 获取本地保存的文献
+   */
+  function getPaper(paperId: string): LocalPaper | null {
+    return localPapers.value.find(p => p.id === paperId) || null
+  }
+
+  /**
    * 清空所有本地保存的文献
    */
   function clearAll() {
@@ -153,6 +160,7 @@ export function useLocalStorage() {
     savePaper,
     removePaper,
     isPaperSaved,
+    getPaper,
     clearAll,
     checkStorageAvailable,
   }
