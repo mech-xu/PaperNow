@@ -294,9 +294,10 @@ function handleLocalSave() {
 }
 
 function handleDownloadPdf() {
-  if (document.value?.pdf_url) {
-    window.open(document.value.pdf_url, '_blank')
-  }
+  // Use API proxy to avoid CORS issues with direct PDF URLs
+  const apiBase = 'https://api.papernow.sunnynow.net'
+  const proxyUrl = `${apiBase}/v1/papers/${documentId.value}/pdf`
+  window.open(proxyUrl, '_blank')
 }
 
 function openDoi() {

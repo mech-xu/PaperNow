@@ -76,7 +76,7 @@
       >
         <PaperCard
           :document="doc"
-          @detail="goToDetail"
+          @click="goToDetail(doc)"
         />
       </view>
 

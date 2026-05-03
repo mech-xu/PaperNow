@@ -260,7 +260,7 @@ export default {
       // ============================================
       // GET /v1/papers/:id - 文献详情
       // ============================================
-      const paperDetailMatch = path.match(/^\/papers\/([0-9a-f-]+)$/)
+      const paperDetailMatch = path.match(/^\/papers\/([^/]+)$/)
       if (paperDetailMatch && request.method === 'GET') {
         const paperId = paperDetailMatch[1]
 
@@ -283,32 +283,52 @@ export default {
       // ============================================
       // GET /v1/papers/:id/pdf - PDF 代理下载
       // ============================================
-      const paperPdfMatch = path.match(/^\/papers\/([0-9a-f-]+)\/pdf$/)
+      const paperPdfMatch = path.match(/^\/papers\/([^/]+)\/pdf$/)
       if (paperPdfMatch && request.method === 'GET') {
         const paperId = paperPdfMatch[1]
 
-        // 获取文献的 PDF URL
+        // Resolve PDF URL: check Supabase first, then derive from ID format
+        let pdfUrl: string | null = null
+        let sourceId = paperId
+
+        // Check Supabase for stored document
         const { data: paper, error } = await supabase
           .from('documents')
           .select('id, title, pdf_url, source, source_id')
           .eq('id', paperId)
           .single()
 
-        if (error || !paper) {
-          return jsonResponse({ error: 'Not Found', message: `Paper ${paperId} not found` }, 404, headers)
+        if (!error && paper) {
+          const doc = paper as SupabaseDocument
+          pdfUrl = doc.pdf_url
+          sourceId = doc.source_id || paperId
         }
 
-        const doc = paper as SupabaseDocument
-        if (!doc.pdf_url) {
+        // If not in Supabase, derive PDF URL from ID format
+        if (!pdfUrl) {
+          if (paperId.startsWith('chinaxiv-')) {
+            // ChinaRxiv: use API endpoint which redirects to actual PDF on Backblaze B2
+            pdfUrl = `https://chinarxiv.org/api/v1/papers/${paperId}/pdf`
+            sourceId = paperId
+          } else if (paperId.startsWith('pmid:')) {
+            // PubMed ID: redirect to PubMed page (no direct PDF for most)
+            const pmid = paperId.replace('pmid:', '')
+            return Response.redirect(`https://pubmed.ncbi.nlm.nih.gov/${pmid}/`, 302)
+          } else {
+            return jsonResponse({ error: 'Not Found', message: `Paper ${paperId} not found` }, 404, headers)
+          }
+        }
+
+        if (!pdfUrl) {
           return jsonResponse({ error: 'No PDF', message: 'This paper does not have a PDF available' }, 404, headers)
         }
 
         try {
           // 代理下载 PDF（处理跨域问题）
-          const pdfResponse = await fetch(doc.pdf_url, {
+          const pdfResponse = await fetch(pdfUrl, {
             headers: {
               'User-Agent': 'PaperNow/1.0 (mailto:papernow@sunnynow.net)',
-              'Accept': 'application/pdf',
+              'Accept': 'application/pdf,*/*',
             },
             redirect: 'follow',
           })
@@ -322,8 +342,9 @@ export default {
 
           // 返回 PDF 流
           const pdfHeaders = new Headers(headers)
-          pdfHeaders.set('Content-Type', 'application/pdf')
-          pdfHeaders.set('Content-Disposition', `inline; filename="${doc.source_id || paperId}.pdf"`)
+          const contentType = pdfResponse.headers.get('Content-Type') || 'application/pdf'
+          pdfHeaders.set('Content-Type', contentType)
+          pdfHeaders.set('Content-Disposition', `inline; filename="${sourceId}.pdf"`)
           pdfHeaders.set('Cache-Control', 'public, max-age=86400')
 
           return new Response(pdfResponse.body, {
