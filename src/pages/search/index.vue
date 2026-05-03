@@ -30,11 +30,9 @@
       class="filter-container"
     >
       <FilterPanel
-        :selected-source="searchStore.selectedSource"
         :date-from="searchStore.dateFrom"
         :date-to="searchStore.dateTo"
         :sort-by="searchStore.sortBy"
-        @update:selected-source="handleFilterChange('source', $event)"
         @update:date-from="handleFilterChange('dateFrom', $event)"
         @update:date-to="handleFilterChange('dateTo', $event)"
         @update:sort-by="handleFilterChange('sortBy', $event)"
@@ -122,7 +120,7 @@ import { useSearchStore } from '@/stores/search'
 import SearchBar from '@/components/common/SearchBar.vue'
 import FilterPanel from '@/components/common/FilterPanel.vue'
 import PaperCard from '@/components/business/PaperCard.vue'
-import type { Document, SupportedSource, SortOption } from '@/types'
+import type { Document, SortOption } from '@/types'
 
 const searchStore = useSearchStore()
 const showFilters = ref(false)
@@ -160,8 +158,7 @@ watch(sentinelRef, (el) => {
 })
 
 const hasActiveFilters = computed(() => {
-  return searchStore.selectedSource !== null
-    || searchStore.dateFrom !== null
+  return searchStore.dateFrom !== null
     || searchStore.dateTo !== null
     || searchStore.sortBy !== 'relevance'
 })
@@ -173,9 +170,6 @@ function handleSearch(query: string) {
 
 function handleFilterChange(filter: string, value: unknown) {
   switch (filter) {
-    case 'source':
-      searchStore.selectedSource = value as SupportedSource | null
-      break
     case 'dateFrom':
       searchStore.dateFrom = value as string | null
       break

@@ -1,21 +1,5 @@
 <template>
   <view class="filter-panel">
-    <!-- Source Filter -->
-    <view class="filter-section">
-      <text class="section-label">来源</text>
-      <view class="chip-list">
-        <view
-          v-for="source in sources"
-          :key="source"
-          class="chip"
-          :class="{ active: selectedSources.includes(source) }"
-          @tap="toggleSource(source)"
-        >
-          <text class="chip-text">{{ source }}</text>
-        </view>
-      </view>
-    </view>
-
     <!-- Date Range -->
     <view class="filter-section">
       <text class="section-label">时间范围</text>
@@ -63,47 +47,30 @@
 
 <script setup lang="ts">
 import { ref, watch } from 'vue'
-import type { SupportedSource, SortOption } from '@/types'
-import { appConfig } from '@/config/app'
+import type { SortOption } from '@/types'
 
 const props = defineProps<{
-  selectedSource: SupportedSource | null
   dateFrom: string | null
   dateTo: string | null
   sortBy: SortOption
 }>()
 
 const emit = defineEmits<{
-  'update:selectedSource': [value: SupportedSource | null]
   'update:dateFrom': [value: string | null]
   'update:dateTo': [value: string | null]
   'update:sortBy': [value: SortOption]
   reset: []
 }>()
 
-const sources = appConfig.supportedSources as readonly SupportedSource[]
 const sortOptions: { label: string; value: SortOption }[] = [
   { label: '相关性', value: 'relevance' },
   { label: '最新', value: 'time' },
   { label: '引用量', value: 'citations' },
 ]
 
-// Local state for multi-select source (convert single to multi for UI)
-const selectedSources = ref<SupportedSource[]>(props.selectedSource ? [props.selectedSource] : [])
 const localDateFrom = ref(props.dateFrom || '')
 const localDateTo = ref(props.dateTo || '')
 const currentSort = ref<SortOption>(props.sortBy)
-
-function toggleSource(source: SupportedSource) {
-  const idx = selectedSources.value.indexOf(source)
-  if (idx >= 0) {
-    selectedSources.value.splice(idx, 1)
-  } else {
-    selectedSources.value.push(source)
-  }
-  // Emit first selected source (or null)
-  emit('update:selectedSource', selectedSources.value[0] || null)
-}
 
 function handleDateFrom(e: any) {
   const val = e?.detail?.value || ''
@@ -123,11 +90,9 @@ function handleSort(value: SortOption) {
 }
 
 function handleReset() {
-  selectedSources.value = []
   localDateFrom.value = ''
   localDateTo.value = ''
   currentSort.value = 'relevance'
-  emit('update:selectedSource', null)
   emit('update:dateFrom', null)
   emit('update:dateTo', null)
   emit('update:sortBy', 'relevance')
@@ -135,9 +100,6 @@ function handleReset() {
 }
 
 // Sync props changes
-watch(() => props.selectedSource, (val) => {
-  selectedSources.value = val ? [val] : []
-})
 watch(() => props.sortBy, (val) => {
   currentSort.value = val
 })
