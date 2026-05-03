@@ -1,8 +1,35 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { supabase } from '@/utils/supabase'
-import type { Document, SortOption, SupportedSource } from '@/types'
+import type { Document, SortOption, SupportedSource, ChinaRxivPaper } from '@/types'
 import { appConfig } from '@/config/app'
+import { searchPapers as searchChinaRxiv, getPaperPdfUrl } from '@/utils/chinarxiv'
+
+// Convert ChinaRxiv paper to Document type
+function chinaRxivToDocument(paper: ChinaRxivPaper): Document {
+  return {
+    id: paper.id,
+    title: paper.title,
+    abstract: paper.abstract || null,
+    authors: paper.authors || null,
+    keywords: paper.subjects || null,
+    category: paper.subjects?.[0] || null,
+    source: 'ChinaRxiv',
+    source_id: paper.id,
+    publish_date: paper.date || null,
+    pdf_url: paper._links?.pdf || getPaperPdfUrl(paper.id),
+    citation_count: 0,
+    doi: null,
+    metadata: {
+      has_full_text: paper.has_full_text,
+      has_figures: paper.has_figures,
+      has_pdf: paper.has_pdf,
+      source_language: paper.source_language,
+      source_url: paper.source_url,
+    },
+    created_at: paper.date || new Date().toISOString(),
+    updated_at: paper.date || new Date().toISOString(),
+  }
+}
 
 export const useSearchStore = defineStore('search', () => {
   // State
@@ -17,6 +44,10 @@ export const useSearchStore = defineStore('search', () => {
   const selectedSource = ref<SupportedSource | null>(null)
   const dateFrom = ref<string | null>(null)
   const dateTo = ref<string | null>(null)
+  const error = ref<string | null>(null)
+
+  // Cursor for ChinaRxiv pagination
+  let nextCursor: string | null = null
 
   // Actions
   async function search(newQuery?: string, resetPage = true) {
@@ -29,34 +60,47 @@ export const useSearchStore = defineStore('search', () => {
     if (resetPage) {
       page.value = 1
       results.value = []
+      nextCursor = null
     }
 
     isLoading.value = true
+    error.value = null
+
     try {
-      const offset = (page.value - 1) * appConfig.searchPageSize
+      const source = selectedSource.value || 'ChinaRxiv'
+      let documents: Document[] = []
+      let resultTotal = 0
 
-      const { data, error } = await supabase.rpc('search_documents', {
-        search_query: query.value,
-        p_category: selectedCategory.value,
-        p_source: selectedSource.value,
-        p_date_from: dateFrom.value,
-        p_date_to: dateTo.value,
-        p_sort_by: sortBy.value,
-        p_limit: appConfig.searchPageSize,
-        p_offset: offset,
-      })
+      if (source === 'ChinaRxiv') {
+        const result = await searchChinaRxiv({
+          q: query.value,
+          subject: selectedCategory.value || undefined,
+          fromDate: dateFrom.value || undefined,
+          toDate: dateTo.value || undefined,
+          limit: appConfig.searchPageSize,
+          cursor: resetPage ? undefined : (nextCursor || undefined),
+        })
 
-      if (error) throw error
+        documents = result.data.map(chinaRxivToDocument)
+        resultTotal = result.total
+        nextCursor = result.next_cursor
+        hasMore.value = result.next_cursor !== null
+      } else {
+        // Other sources not yet implemented
+        error.value = `${source} search is not yet available. Try ChinaRxiv.`
+        hasMore.value = false
+      }
 
-      const documents = (data || []) as Document[]
+      total.value = resultTotal
 
       if (resetPage) {
         results.value = documents
       } else {
         results.value.push(...documents)
       }
-
-      hasMore.value = documents.length === appConfig.searchPageSize
+    } catch (err) {
+      error.value = err instanceof Error ? err.message : 'Search failed'
+      hasMore.value = false
     } finally {
       isLoading.value = false
     }
@@ -83,6 +127,7 @@ export const useSearchStore = defineStore('search', () => {
     page,
     isLoading,
     hasMore,
+    error,
     sortBy,
     selectedCategory,
     selectedSource,

@@ -53,6 +53,14 @@
         <text class="empty-text">输入关键词搜索预印本文献</text>
       </view>
 
+      <!-- Error -->
+      <view
+        v-if="searchStore.error"
+        class="error-state"
+      >
+        <text class="error-text">{{ searchStore.error }}</text>
+      </view>
+
       <!-- No Results -->
       <view
         v-else-if="!searchStore.isLoading && searchStore.results.length === 0 && searchStore.query"
@@ -253,6 +261,16 @@ function goToDetail(doc: Document) {
   font-size: 13px;
   color: #999;
   display: block;
+}
+
+.error-state {
+  text-align: center;
+  padding: 24px 16px;
+}
+
+.error-text {
+  font-size: 14px;
+  color: #dc2626;
 }
 
 .loading {
