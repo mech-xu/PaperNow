@@ -76,12 +76,23 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function fetchOrCreateProfile(userId: string, email?: string) {
-    // 先尝试获取
-    const { data } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', userId)
-      .single()
+    // 先尝试获取（带重试，OAuth callback 后可能需要短暂等待）
+    let data = null
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const result = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .single()
+      if (result.data) {
+        data = result.data
+        break
+      }
+      // Wait before retry (handles 406/race condition during OAuth callback)
+      if (attempt < 2) {
+        await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)))
+      }
+    }
 
     if (data) {
       profile.value = data as Profile

@@ -7,27 +7,63 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { onMounted, onUnmounted } from 'vue'
+import { supabase } from '@/utils/supabase'
 import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()
+let timeoutId: ReturnType<typeof setTimeout> | null = null
+let handled = false
+
+function handleSuccess() {
+  if (handled) return
+  handled = true
+  uni.switchTab({ url: '/pages/home/index' })
+}
+
+function handleFailure() {
+  if (handled) return
+  handled = true
+  uni.redirectTo({ url: '/pages/auth/login' })
+}
 
 onMounted(async () => {
   try {
-    // Supabase Auth 会自动处理 OAuth 回调中的 hash fragment
-    // detectSessionInUrl: true 已在 supabase client 配置中启用
-    // 等待 auth state 更新
-    await auth.initialize()
+    // Set a timeout in case OAuth callback takes too long
+    timeoutId = setTimeout(() => {
+      handleFailure()
+    }, 10000)
 
-    if (auth.isAuthenticated) {
-      // 登录成功，跳转首页
-      uni.switchTab({ url: '/pages/home/index' })
-    } else {
-      // 登录失败，跳转登录页
-      uni.redirectTo({ url: '/pages/auth/login' })
+    // Listen for the SIGNED_IN event from OAuth callback
+    // detectSessionInUrl: true will parse the hash fragment and fire this event
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'SIGNED_IN' && session?.user) {
+        await auth.initialize()
+        if (auth.isAuthenticated) {
+          handleSuccess()
+        } else {
+          handleFailure()
+        }
+      }
+    })
+
+    // Also check if session already exists (e.g. user refreshed the page)
+    const { data: { session } } = await supabase.auth.getSession()
+    if (session?.user) {
+      await auth.initialize()
+      if (auth.isAuthenticated) {
+        handleSuccess()
+        return
+      }
     }
+
+    // Clean up subscription on unmount
+    onUnmounted(() => {
+      subscription.unsubscribe()
+      if (timeoutId) clearTimeout(timeoutId)
+    })
   } catch (_err) {
-    uni.redirectTo({ url: '/pages/auth/login' })
+    handleFailure()
   }
 })
 </script>
