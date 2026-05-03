@@ -68,7 +68,20 @@ export const useCollectionStore = defineStore('collection', () => {
       .select()
       .single()
 
-    if (error) throw error
+    // 409 Conflict means already collected - treat as success
+    if (error) {
+      if (error.code === '23505') {
+        // Already exists - fetch and return
+        const { data: existing } = await supabase
+          .from('user_collections')
+          .select()
+          .eq('user_id', auth.user!.id)
+          .eq('document_id', documentId)
+          .single()
+        return existing
+      }
+      throw error
+    }
     return data
   }
 

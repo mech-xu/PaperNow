@@ -249,19 +249,10 @@ async function handleCollect() {
 async function ensureDocumentInDb() {
   if (!document.value) return
 
-  // Check if document already exists in Supabase
+  // Upsert document into Supabase (handles both new and existing)
   const { supabase } = await import('@/utils/supabase')
-  const { data } = await supabase
-    .from('documents')
-    .select('id')
-    .eq('id', documentId.value)
-    .single()
-
-  if (data) return // Already exists
-
-  // Insert document into Supabase
   const doc = document.value
-  await supabase.from('documents').insert({
+  const { error } = await supabase.from('documents').upsert({
     id: doc.id,
     title: doc.title,
     abstract: doc.abstract,
@@ -275,7 +266,13 @@ async function ensureDocumentInDb() {
     citation_count: doc.citation_count,
     doi: doc.doi,
     metadata: doc.metadata,
+  }, {
+    onConflict: 'id',
   })
+
+  if (error) {
+    console.error('[ensureDocumentInDb]', error)
+  }
 }
 
 function handleLocalSave() {
