@@ -152,10 +152,17 @@ export const useSearchStore = defineStore('search', () => {
         const server = source === 'medRxiv' ? 'medrxiv' : 'biorxiv'
         const cursor = resetPage ? 0 : (page.value - 1) * appConfig.searchPageSize
 
+        // Default to last 12 months for bioRxiv/medRxiv (full range is too slow)
+        const defaultFromDate = (() => {
+          const d = new Date()
+          d.setFullYear(d.getFullYear() - 1)
+          return d.toISOString().split('T')[0]
+        })()
+
         const result = await searchBiorxiv(server, {
           q: query.value,
           category: selectedCategory.value || undefined,
-          fromDate: dateFrom.value || undefined,
+          fromDate: dateFrom.value || defaultFromDate,
           toDate: dateTo.value || undefined,
           cursor,
           limit: appConfig.searchPageSize,

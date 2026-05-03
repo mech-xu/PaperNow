@@ -35,6 +35,7 @@ export interface BiorxivSearchResult {
 
 /**
  * Search bioRxiv or medRxiv papers
+ * API: /details/{server}/{from_date}/{to_date}/{cursor}
  */
 export async function searchPapers(
   server: 'biorxiv' | 'medrxiv',
@@ -44,28 +45,39 @@ export async function searchPapers(
     fromDate?: string     // YYYY-MM-DD
     toDate?: string       // YYYY-MM-DD
     cursor?: number       // offset for pagination
-    limit?: number        // default 100, max 100
+    limit?: number        // default 30, max 100
   },
 ): Promise<BiorxivSearchResult> {
-  // bioRxiv/medRxiv API: /details/{server}/{interval}/{cursor}
-  // interval format: {from_date}-{to_date} or {doi}
-  const interval = params.fromDate && params.toDate
-    ? `${params.fromDate}-${params.toDate}`
-    : params.fromDate
-      ? `${params.fromDate}-2099-12-31`
-      : '2013-11-01-2099-12-31'  // bioRxiv started Nov 2013
-
+  const fromDate = params.fromDate || '2013-11-01'  // bioRxiv started Nov 2013
+  const toDate = params.toDate || '2099-12-31'
   const cursor = params.cursor || 0
-  const url = `${API_BASE}/details/${server}/${interval}/${cursor}`
+
+  // API format: /details/{server}/{from_date}/{to_date}/{cursor}
+  const url = `${API_BASE}/details/${server}/${fromDate}/${toDate}/${cursor}`
 
   // Use API proxy to bypass CORS
   const proxyUrl = `${PROXY_URL}?url=${encodeURIComponent(url)}`
   const res = await fetch(proxyUrl)
   if (!res.ok) throw new Error(`${server} API error: ${res.status}`)
 
-  const data: BiorxivSearchResult = await res.json()
+  const raw = await res.json()
 
-  // Client-side text filtering if query provided (API doesn't support full-text search)
+  // Normalize messages (API returns array or object depending on version)
+  const msgs = Array.isArray(raw.messages) ? raw.messages[0] : raw.messages
+  const collection: BiorxivPaper[] = raw.collection || []
+
+  const data: BiorxivSearchResult = {
+    messages: {
+      status: msgs?.status || 'ok',
+      interval: msgs?.interval || '',
+      cursor: msgs?.cursor || 0,
+      count: msgs?.count || collection.length,
+      total: msgs?.total || collection.length,
+    },
+    collection,
+  }
+
+  // Client-side text filtering (API doesn't support full-text search)
   if (params.q) {
     const q = params.q.toLowerCase()
     data.collection = data.collection.filter((paper) => {
@@ -103,8 +115,9 @@ export async function getPaperDetail(
   const res = await fetch(proxyUrl)
   if (!res.ok) return null
 
-  const data: BiorxivSearchResult = await res.json()
-  return data.collection[0] || null
+  const raw = await res.json()
+  const collection = raw.collection || []
+  return collection[0] || null
 }
 
 /**
