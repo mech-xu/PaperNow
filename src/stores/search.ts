@@ -70,7 +70,7 @@ export const useSearchStore = defineStore('search', () => {
   const hasMore = ref(false)
   const sortBy = ref<SortOption>('relevance')
   const selectedCategory = ref<string | null>(null)
-  const selectedSource = ref<SupportedSource | null>('ChinaRxiv')
+  const selectedSource = ref<SupportedSource | null>(null)
   const dateFrom = ref<string | null>(null)
   const dateTo = ref<string | null>(null)
   const error = ref<string | null>(null)
@@ -96,7 +96,11 @@ export const useSearchStore = defineStore('search', () => {
     error.value = null
 
     try {
-      const source = selectedSource.value || 'ChinaRxiv'
+      const source = selectedSource.value
+      if (!source) {
+        error.value = 'Please select a search source'
+        return
+      }
       let documents: Document[] = []
       let resultTotal = 0
 

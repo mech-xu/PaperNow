@@ -135,9 +135,15 @@ import type { Document, SortOption } from '@/types'
 const searchStore = useSearchStore()
 const showFilters = ref(false)
 
-// When "Refresh" tab is tapped, reload the current page
+// "Refresh" tab: when tapped, go to home page and reload
+// This replaces the old "Search" tab - search is accessed via Home page data sources
 onTabItemTap(() => {
-  location.reload()
+  uni.switchTab({
+    url: '/pages/home/index',
+    success: () => {
+      setTimeout(() => location.reload(), 50)
+    },
+  })
 })
 
 // Update navigation bar title to show selected source
