@@ -5,6 +5,15 @@
 
 import { createClient } from '@supabase/supabase-js'
 
+// Cloudflare Workers type declarations
+declare const caches: CacheStorage & { default: Cache }
+interface KVNamespace {
+  get(key: string, options?: { type?: 'text' | 'json' | 'arrayBuffer' | 'stream' }): Promise<string | null>
+  put(key: string, value: string | ReadableStream | ArrayBuffer, options?: { expirationTtl?: number; expiration?: number; metadata?: unknown }): Promise<void>
+  delete(key: string): Promise<void>
+  list(options?: { prefix?: string; limit?: number; cursor?: string }): Promise<{ keys: Array<{ name: string; expiration?: number; metadata?: unknown }>; list_complete: boolean; cursor?: string }>
+}
+
 interface Env {
   SUPABASE_URL: string
   SUPABASE_SERVICE_KEY: string
