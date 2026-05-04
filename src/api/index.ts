@@ -12,6 +12,7 @@ interface Env {
   APP_VERSION: string
   API_PREFIX: string
   FRONTEND_DOMAIN: string
+  CACHE_KV?: KVNamespace // Optional: Workers KV for L2 cache
 }
 
 interface SupabaseDocument {
@@ -463,7 +464,7 @@ export default {
       }
 
       // ============================================
-      // GET /v1/proxy - External API proxy (CORS bypass)
+      // GET /v1/proxy - External API proxy (CORS bypass) with L1+L2 cache
       // ============================================
       if (path === '/proxy' && request.method === 'GET') {
         const targetUrl = url.searchParams.get('url')
@@ -482,6 +483,50 @@ export default {
         }
 
         try {
+          // Determine cache TTL based on target URL
+          const cacheTtl = getProxyCacheTtl(targetUrl)
+          const kvKey = buildCacheKey(targetUrl)
+
+          // L1: Check Cache API (datacenter-local, fastest)
+          const cache = caches.default
+          const cacheRequest = new Request(targetUrl, { method: 'GET' })
+          const cachedResponse = await cache.match(cacheRequest)
+          if (cachedResponse) {
+            const responseHeaders = new Headers(headers)
+            responseHeaders.set('X-Cache', 'L1-HIT')
+            const contentType = cachedResponse.headers.get('Content-Type')
+            if (contentType) responseHeaders.set('Content-Type', contentType)
+            return new Response(cachedResponse.body, {
+              status: 200,
+              headers: responseHeaders,
+            })
+          }
+
+          // L2: Check Workers KV (globally replicated)
+          if (env.CACHE_KV) {
+            const kvValue = await env.CACHE_KV.get(kvKey, { type: 'arrayBuffer' })
+            if (kvValue) {
+              // Populate L1 from L2
+              const contentType = 'application/json'
+              const l2Response = new Response(kvValue, {
+                headers: {
+                  'Content-Type': contentType,
+                  'Cache-Control': `public, max-age=${cacheTtl}`,
+                },
+              })
+              await cache.put(cacheRequest, l2Response.clone())
+
+              const responseHeaders = new Headers(headers)
+              responseHeaders.set('X-Cache', 'L2-HIT')
+              responseHeaders.set('Content-Type', contentType)
+              return new Response(kvValue, {
+                status: 200,
+                headers: responseHeaders,
+              })
+            }
+          }
+
+          // L3: Fetch from upstream
           const proxyResponse = await fetch(targetUrl, {
             headers: {
               'User-Agent': 'PaperNow/1.0 (mailto:papernow@sunnynow.net)',
@@ -493,11 +538,27 @@ export default {
             return jsonResponse({ error: 'Proxy Fetch Failed', message: `Upstream returned ${proxyResponse.status}` }, 502, headers)
           }
 
-          const proxyHeaders = new Headers(headers)
-          const contentType = proxyResponse.headers.get('Content-Type')
-          if (contentType) proxyHeaders.set('Content-Type', contentType)
+          const body = await proxyResponse.arrayBuffer()
+          const contentType = proxyResponse.headers.get('Content-Type') || 'application/json'
 
-          return new Response(proxyResponse.body, {
+          // Store in L2 (Workers KV) with TTL
+          if (env.CACHE_KV) {
+            await env.CACHE_KV.put(kvKey, body, { expirationTtl: cacheTtl })
+          }
+
+          // Store in L1 (Cache API)
+          const cachedUpstream = new Response(body, {
+            headers: {
+              'Content-Type': contentType,
+              'Cache-Control': `public, max-age=${cacheTtl}`,
+            },
+          })
+          await cache.put(cacheRequest, cachedUpstream)
+
+          const proxyHeaders = new Headers(headers)
+          proxyHeaders.set('Content-Type', contentType)
+          proxyHeaders.set('X-Cache', 'MISS')
+          return new Response(body, {
             status: 200,
             headers: proxyHeaders,
           })
@@ -543,4 +604,49 @@ export default {
       headers,
     )
   },
+}
+
+// ============================================
+// Cache helper functions for proxy endpoint
+// ============================================
+
+/**
+ * Build cache key from target URL
+ * Format: proxy:{host}:{path_parts_joined}
+ * e.g., proxy:api.biorxiv.org:details:biorxiv:2024-11-01:2025-05-03:0
+ */
+function buildCacheKey(targetUrl: string): string {
+  const u = new URL(targetUrl)
+  const parts = u.pathname.split('/').filter(Boolean)
+  return `proxy:${u.hostname}:${parts.join(':')}`
+}
+
+/**
+ * Determine cache TTL based on target URL
+ * - Past date ranges: 7 days (papers don't change)
+ * - Current date range: 1 hour (new papers posted throughout day)
+ * - arXiv: 1 hour (arXiv updates daily)
+ */
+function getProxyCacheTtl(targetUrl: string): number {
+  const u = new URL(targetUrl)
+
+  // arXiv: cache 1 hour (updates daily)
+  if (u.hostname === 'export.arxiv.org') {
+    return 3600
+  }
+
+  // bioRxiv/medRxiv: check if date range is in the past
+  // URL format: /details/{server}/{from_date}/{to_date}/{cursor}
+  const parts = u.pathname.split('/').filter(Boolean)
+  if (parts.length >= 4 && parts[0] === 'details') {
+    const toDate = parts[3] // YYYY-MM-DD
+    const today = new Date().toISOString().split('T')[0]
+    if (toDate < today) {
+      return 7 * 24 * 3600 // 7 days for past ranges
+    }
+    return 3600 // 1 hour for current range
+  }
+
+  // Default: 1 hour
+  return 3600
 }
