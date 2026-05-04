@@ -162,7 +162,7 @@ function deduplicateByDoi(papers: BiorxivPaper[]): BiorxivPaper[] {
 
 function getDefaultFromDate(): string {
   const d = new Date()
-  d.setMonth(d.getMonth() - 6) // Last 6 months for reasonable match rate
+  d.setMonth(d.getMonth() - 2) // Last 2 months (3x fewer pages than 6 months)
   return d.toISOString().split('T')[0]
 }
 

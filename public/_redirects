@@ -1,24 +1,6 @@
-# PaperHub SPA 路由重写规则
-# Cloudflare Pages 部署配置
-#
-# 原理：UniApp + Vue3 使用 history 路由模式，前端路由（如 /pages/search/index）
-# 在 Cloudflare Pages 上找不到对应的静态文件，会返回 404。
-# 通过 _redirects 规则，将所有非静态资源请求内部重写（Rewrite）到 index.html，
-# 由 Vue Router 在客户端接管路由，渲染正确的页面组件。
-#
-# 格式：[源路径] [目标路径] [状态码]
-# - 200：内部重写，浏览器地址栏不变，无额外网络请求
-# - 注意：不要使用 301/302，否则会导致地址栏变化且增加额外请求，破坏 SPA 体验
-#
-# 规则按顺序匹配，Cloudflare Pages 会使用第一个匹配的规则
+# PaperNow SPA fallback for Cloudflare Pages
+# History mode routing: non-file paths are rewritten to index.html
+# Vue Router handles the actual path on the client side
+# 200 = internal rewrite (browser URL stays the same)
 
-# 优先匹配静态资源，直接返回（不走重写逻辑，提升性能）
-/assets/* /assets/:splat 200
-/static/* /static/:splat 200
-/favicon.ico /favicon.ico 200
-/favicon.svg /favicon.svg 200
-/robots.txt /robots.txt 200
-/sitemap.xml /sitemap.xml 200
-
-# 其余所有请求重写到 index.html（SPA fallback）
 /* /index.html 200

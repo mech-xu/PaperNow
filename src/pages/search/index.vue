@@ -125,6 +125,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { onTabItemTap } from '@dcloudio/uni-app'
 import { useSearchStore } from '@/stores/search'
 import SearchBar from '@/components/common/SearchBar.vue'
 import FilterPanel from '@/components/common/FilterPanel.vue'
@@ -133,6 +134,11 @@ import type { Document, SortOption } from '@/types'
 
 const searchStore = useSearchStore()
 const showFilters = ref(false)
+
+// When "Refresh" tab is tapped, reload the current page
+onTabItemTap(() => {
+  location.reload()
+})
 
 // Update navigation bar title to show selected source
 watch(() => searchStore.selectedSource, (source) => {

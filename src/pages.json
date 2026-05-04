@@ -76,7 +76,7 @@
       },
       {
         "pagePath": "pages/search/index",
-        "text": "Search",
+        "text": "Refresh",
         "iconPath": "static/tab/search.png",
         "selectedIconPath": "static/tab/search-active.png"
       },
