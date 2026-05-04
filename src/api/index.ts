@@ -268,34 +268,11 @@ export default {
       }
 
       // ============================================
-      // GET /v1/papers/:id - 文献详情
+      // GET /v1/papers/:id/pdf - PDF 代理下载 (must match before :id)
       // ============================================
-      const paperDetailMatch = path.match(/^\/papers\/([^/]+)$/)
-      if (paperDetailMatch && request.method === 'GET') {
-        const paperId = paperDetailMatch[1]
-
-        const { data, error } = await supabase
-          .from('documents')
-          .select('*')
-          .eq('id', paperId)
-          .single()
-
-        if (error) {
-          if (error.code === 'PGRST116') {
-            return jsonResponse({ error: 'Not Found', message: `Paper ${paperId} not found` }, 404, headers)
-          }
-          return jsonResponse({ error: 'Database error', message: error.message }, 500, headers)
-        }
-
-        return jsonResponse({ data }, 200, headers)
-      }
-
-      // ============================================
-      // GET /v1/papers/:id/pdf - PDF 代理下载
-      // ============================================
-      const paperPdfMatch = path.match(/^\/papers\/([^/]+)\/pdf$/)
+      const paperPdfMatch = path.match(/^\/papers\/(.+)\/pdf$/)
       if (paperPdfMatch && request.method === 'GET') {
-        const paperId = paperPdfMatch[1]
+        const paperId = decodeURIComponent(paperPdfMatch[1])
 
         // Resolve PDF URL: check Supabase first, then derive from ID format
         let pdfUrl: string | null = null
@@ -382,6 +359,29 @@ export default {
             message: fetchError instanceof Error ? fetchError.message : 'Network error',
           }, 502, headers)
         }
+      }
+
+      // ============================================
+      // GET /v1/papers/:id - 文献详情
+      // ============================================
+      const paperDetailMatch = path.match(/^\/papers\/(.+)$/)
+      if (paperDetailMatch && request.method === 'GET') {
+        const paperId = decodeURIComponent(paperDetailMatch[1])
+
+        const { data, error } = await supabase
+          .from('documents')
+          .select('*')
+          .eq('id', paperId)
+          .single()
+
+        if (error) {
+          if (error.code === 'PGRST116') {
+            return jsonResponse({ error: 'Not Found', message: `Paper ${paperId} not found` }, 404, headers)
+          }
+          return jsonResponse({ error: 'Database error', message: error.message }, 500, headers)
+        }
+
+        return jsonResponse({ data }, 200, headers)
       }
 
       // ============================================

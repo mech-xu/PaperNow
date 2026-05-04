@@ -344,8 +344,9 @@ function handleLocalSave() {
 
 function handleDownloadPdf() {
   // Use API proxy to avoid CORS issues with direct PDF URLs
+  // Encode the document ID (contains colons and slashes like "medrxiv:10.1101/...")
   const apiBase = 'https://api.papernow.sunnynow.net'
-  const proxyUrl = `${apiBase}/v1/papers/${documentId.value}/pdf`
+  const proxyUrl = `${apiBase}/v1/papers/${encodeURIComponent(documentId.value)}/pdf`
   window.open(proxyUrl, '_blank')
 }
 
