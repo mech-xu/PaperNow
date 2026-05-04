@@ -543,7 +543,11 @@ export default {
 
           // Store in L2 (Workers KV) with TTL
           if (env.CACHE_KV) {
-            await env.CACHE_KV.put(kvKey, body, { expirationTtl: cacheTtl })
+            try {
+              await env.CACHE_KV.put(kvKey, body, { expirationTtl: cacheTtl })
+            } catch (kvErr) {
+              console.error('[KV put error]', kvKey, kvErr)
+            }
           }
 
           // Store in L1 (Cache API)

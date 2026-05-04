@@ -11,6 +11,11 @@ compatibility_flags = ["nodejs_compat"]
 # - 开发: api-dev.papernow.sunnynow.net
 # ============================================
 
+# Workers KV - L2 cache for proxy endpoint
+[[kv_namespaces]]
+binding = "CACHE_KV"
+id = "877b9f93ee724cfbb5a4093fef412eb1"
+
 [vars]
 APP_NAME = "PaperNow"
 APP_VERSION = "v1"
