@@ -5,7 +5,43 @@
     </view>
 
     <view class="container">
-      <text class="title">系统管理</text>
+      <!-- Login Form -->
+      <view v-if="!isLoggedIn" class="login-section">
+        <text class="title">系统管理</text>
+        <view class="form">
+          <view class="form-item">
+            <text class="label">用户名</text>
+            <input
+              v-model="username"
+              type="text"
+              placeholder="请输入管理员用户名"
+              class="input"
+            >
+          </view>
+          <view class="form-item">
+            <text class="label">密码</text>
+            <input
+              v-model="password"
+              type="password"
+              placeholder="请输入管理员密码"
+              class="input"
+              @confirm="handleLogin"
+            >
+          </view>
+          <button class="btn btn-primary" @tap="handleLogin" :disabled="isLoggingIn">
+            {{ isLoggingIn ? '验证中...' : '登录' }}
+          </button>
+          <text v-if="loginError" class="error-text">{{ loginError }}</text>
+        </view>
+      </view>
+
+      <!-- Admin Panel (after login) -->
+      <view v-else>
+        <view class="admin-header">
+          <text class="title">系统管理</text>
+          <text class="admin-user">管理员: {{ username }}</text>
+          <button class="btn-logout-sm" @tap="handleLogout">退出</button>
+        </view>
 
       <!-- Tabs -->
       <view class="tabs">
@@ -64,6 +100,7 @@
         <text v-if="cacheMessage" class="success-text">{{ cacheMessage }}</text>
         <text v-if="loadError" class="error-text">{{ loadError }}</text>
       </view>
+      </view>
     </view>
   </view>
 </template>
@@ -72,7 +109,13 @@
 import { ref } from 'vue'
 
 const API_BASE = 'https://api.papernow.sunnynow.net/v1'
-const ADMIN_AUTH = `Basic ${btoa('admin:admin')}`
+
+const username = ref('')
+const password = ref('')
+const isLoggedIn = ref(false)
+const isLoggingIn = ref(false)
+const loginError = ref('')
+const adminAuth = ref('')
 
 const activeTab = ref('users')
 const isLoading = ref(false)
@@ -86,11 +129,49 @@ async function apiFetch(path: string, options?: RequestInit) {
   return fetch(`${API_BASE}${path}`, {
     ...options,
     headers: {
-      'Authorization': ADMIN_AUTH,
+      'Authorization': adminAuth.value,
       'Content-Type': 'application/json',
       ...(options?.headers || {}),
     },
   })
+}
+
+async function handleLogin() {
+  if (!username.value || !password.value) {
+    loginError.value = '请输入用户名和密码'
+    return
+  }
+  isLoggingIn.value = true
+  loginError.value = ''
+  try {
+    const auth = `Basic ${btoa(`${username.value}:${password.value}`)}`
+    const res = await fetch(`${API_BASE}/admin/cache/stats`, {
+      headers: { 'Authorization': auth },
+    })
+    if (res.status === 401) {
+      loginError.value = '用户名或密码错误'
+      return
+    }
+    if (!res.ok) throw new Error(`Error: ${res.status}`)
+    adminAuth.value = auth
+    isLoggedIn.value = true
+    // Load initial data
+    loadUsers()
+    loadCacheStats()
+  } catch (err) {
+    loginError.value = err instanceof Error ? err.message : String(err)
+  } finally {
+    isLoggingIn.value = false
+  }
+}
+
+function handleLogout() {
+  isLoggedIn.value = false
+  adminAuth.value = ''
+  username.value = ''
+  password.value = ''
+  users.value = []
+  cacheKeyCount.value = 0
 }
 
 async function loadUsers() {
@@ -161,10 +242,6 @@ function formatDate(date: string) {
 }
 
 function goHome() { uni.switchTab({ url: '/pages/home/index' }) }
-
-// Auto-load on mount
-loadUsers()
-loadCacheStats()
 </script>
 
 <style scoped>
@@ -185,6 +262,62 @@ loadCacheStats()
   color: #333;
   display: block;
   margin-bottom: 20px;
+}
+
+.login-section {
+  padding-top: 40px;
+}
+
+.form {
+  background: #fff;
+  border-radius: 12px;
+  padding: 24px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.form-item {
+  margin-bottom: 20px;
+}
+
+.label {
+  font-size: 14px;
+  color: #333;
+  font-weight: 500;
+  display: block;
+  margin-bottom: 8px;
+}
+
+.input {
+  width: 100%;
+  height: 44px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 0 12px;
+  font-size: 16px;
+  background: #fafafa;
+  box-sizing: border-box;
+}
+
+.admin-header {
+  display: flex;
+  align-items: center;
+  margin-bottom: 20px;
+  gap: 12px;
+}
+
+.admin-user {
+  font-size: 14px;
+  color: #666;
+  flex: 1;
+}
+
+.btn-logout-sm {
+  background: #f5f5f5;
+  color: #666;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  padding: 4px 12px;
+  font-size: 13px;
 }
 
 .tabs {
