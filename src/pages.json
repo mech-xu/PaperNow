@@ -54,6 +54,12 @@
       "style": {
         "navigationBarTitleText": "Profile"
       }
+    },
+    {
+      "path": "pages/admin/index",
+      "style": {
+        "navigationBarTitleText": "Admin"
+      }
     }
   ],
   "globalStyle": {

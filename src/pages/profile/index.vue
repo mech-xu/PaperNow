@@ -92,6 +92,25 @@
         >
           退出登录
         </button>
+
+        <!-- Delete Account -->
+        <view class="danger-zone">
+          <text class="danger-label">危险区域</text>
+          <button
+            class="btn btn-danger"
+            :disabled="isDeleting"
+            @tap="handleDeleteAccount"
+          >
+            {{ isDeleting ? '删除中...' : '删除账号' }}
+          </button>
+          <text class="danger-hint">删除账号将永久移除您的所有数据，包括收藏、标签、协作文件夹等。此操作不可撤销。</text>
+          <text
+            v-if="deleteError"
+            class="error-text"
+          >
+            {{ deleteError }}
+          </text>
+        </view>
       </view>
 
       <!-- Not Authenticated -->
@@ -122,8 +141,10 @@ const auth = useAuthStore()
 const editDisplayName = ref('')
 const editBio = ref('')
 const isSaving = ref(false)
+const isDeleting = ref(false)
 const saveError = ref('')
 const saveSuccess = ref(false)
+const deleteError = ref('')
 
 const avatarInitial = computed(() => {
   const name = auth.displayName
@@ -176,6 +197,49 @@ function goToLogin() {
 }
 
 function goHome() { uni.switchTab({ url: '/pages/home/index' }) }
+
+async function handleDeleteAccount() {
+  // Confirmation dialog
+  const confirmed = confirm('确定要删除账号吗？此操作不可撤销，所有数据将被永久删除。')
+  if (!confirmed) return
+
+  const doubleConfirm = confirm('最后确认：输入"DELETE"来确认删除账号')
+  if (doubleConfirm !== true) return
+
+  isDeleting.value = true
+  deleteError.value = ''
+
+  try {
+    const userId = auth.user?.id
+    if (!userId) throw new Error('Not authenticated')
+
+    // Get the current session token
+    const { supabase } = await import('@/utils/supabase')
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session) throw new Error('No active session')
+
+    // Call the delete endpoint
+    const response = await fetch(`https://api.papernow.sunnynow.net/v1/users/${userId}`, {
+      method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${session.access_token}`,
+      },
+    })
+
+    if (!response.ok) {
+      const data = await response.json()
+      throw new Error(data.message || 'Delete failed')
+    }
+
+    // Sign out locally and redirect
+    await auth.logout()
+    uni.redirectTo({ url: '/pages/auth/login' })
+  } catch (err) {
+    deleteError.value = err instanceof Error ? err.message : String(err)
+  } finally {
+    isDeleting.value = false
+  }
+}
 </script>
 
 <style scoped>
@@ -298,6 +362,38 @@ function goHome() { uni.switchTab({ url: '/pages/home/index' }) }
   background: #fff;
   color: #e53e3e;
   border: 1px solid #e53e3e;
+}
+
+.danger-zone {
+  margin-top: 32px;
+  padding-top: 24px;
+  border-top: 1px solid #e53e3e;
+}
+
+.danger-label {
+  font-size: 14px;
+  color: #e53e3e;
+  font-weight: 600;
+  display: block;
+  margin-bottom: 12px;
+}
+
+.btn-danger {
+  background: #e53e3e;
+  color: #fff;
+}
+
+.btn-danger[disabled] {
+  background: #fc8181;
+  color: #fff;
+}
+
+.danger-hint {
+  font-size: 12px;
+  color: #999;
+  display: block;
+  margin-top: 8px;
+  line-height: 1.5;
 }
 
 .error-text {

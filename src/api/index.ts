@@ -583,6 +583,157 @@ export default {
         }
       }
 
+      // ============================================
+      // DELETE /v1/users/:id - Delete user account and all data
+      // ============================================
+      if (path.match(/^\/users\/(.+)$/) && request.method === 'DELETE') {
+        const match = path.match(/^\/users\/(.+)$/)!
+        const userId = decodeURIComponent(match[1])
+
+        // Verify the requesting user is deleting their own account (or is admin)
+        const authHeader = request.headers.get('Authorization')
+        if (!authHeader) {
+          return jsonResponse({ error: 'Unauthorized', message: 'Missing Authorization header' }, 401, headers)
+        }
+
+        // Get the requesting user's ID from the Supabase auth token
+        const token = authHeader.replace('Bearer ', '')
+        const { data: { user: requestingUser }, error: authError } = await supabase.auth.getUser(token)
+        if (authError || !requestingUser) {
+          return jsonResponse({ error: 'Unauthorized', message: 'Invalid token' }, 401, headers)
+        }
+
+        // Only allow deleting own account (admin override handled separately)
+        if (requestingUser.id !== userId) {
+          return jsonResponse({ error: 'Forbidden', message: 'Can only delete your own account' }, 403, headers)
+        }
+
+        // Delete the user from auth.users - CASCADE will delete all related data
+        // (profiles, user_collections, user_tags, document_tags, collab_folders, etc.)
+        const adminClient = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_KEY, {
+          auth: { autoRefreshToken: false, persistSession: false },
+        })
+        const { error: deleteError } = await adminClient.auth.admin.deleteUser(userId)
+
+        if (deleteError) {
+          return jsonResponse({ error: 'Delete Failed', message: deleteError.message }, 500, headers)
+        }
+
+        return jsonResponse({ success: true, message: 'Account deleted' }, 200, headers)
+      }
+
+      // ============================================
+      // Admin endpoints (basic auth: admin/admin)
+      // ============================================
+      const adminAuth = request.headers.get('Authorization')
+      const isAdmin = adminAuth === `Basic ${btoa('admin:admin')}`
+
+      if (path.startsWith('/admin') && !isAdmin) {
+        return new Response('Unauthorized', {
+          status: 401,
+          headers: { 'WWW-Authenticate': 'Basic realm="PaperNow Admin"' },
+        })
+      }
+
+      // GET /v1/admin/users - List all users
+      if (path === '/admin/users' && request.method === 'GET') {
+        const adminClient = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_KEY, {
+          auth: { autoRefreshToken: false, persistSession: false },
+        })
+
+        const { data, error } = await adminClient
+          .from('profiles')
+          .select('id, display_name, bio, created_at')
+
+        if (error) {
+          return jsonResponse({ error: 'Database error', message: error.message }, 500, headers)
+        }
+
+        // Get collection counts per user
+        const { data: collCounts } = await adminClient
+          .from('user_collections')
+          .select('user_id')
+
+        const countMap: Record<string, number> = {}
+        if (collCounts) {
+          for (const c of collCounts) {
+            countMap[c.user_id] = (countMap[c.user_id] || 0) + 1
+          }
+        }
+
+        // Get emails from auth.users via admin API
+        const { data: authUsers } = await adminClient.auth.admin.listUsers()
+        const emailMap: Record<string, string> = {}
+        if (authUsers?.users) {
+          for (const u of authUsers.users) {
+            emailMap[u.id] = u.email || ''
+          }
+        }
+
+        const users = (data || []).map((u: any) => ({
+          ...u,
+          email: emailMap[u.id] || '',
+          collection_count: countMap[u.id] || 0,
+        }))
+
+        return jsonResponse({ users }, 200, headers)
+      }
+
+      // DELETE /v1/admin/users/:id - Admin delete user
+      if (path.match(/^\/admin\/users\/(.+)$/) && request.method === 'DELETE') {
+        const match = path.match(/^\/admin\/users\/(.+)$/)!
+        const userId = decodeURIComponent(match[1])
+
+        const adminClient = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_KEY, {
+          auth: { autoRefreshToken: false, persistSession: false },
+        })
+        const { error: deleteError } = await adminClient.auth.admin.deleteUser(userId)
+
+        if (deleteError) {
+          return jsonResponse({ error: 'Delete Failed', message: deleteError.message }, 500, headers)
+        }
+
+        return jsonResponse({ success: true, message: `User ${userId} deleted` }, 200, headers)
+      }
+
+      // POST /v1/admin/cache/purge - Purge Workers KV cache
+      if (path === '/admin/cache/purge' && request.method === 'POST') {
+        if (!env.CACHE_KV) {
+          return jsonResponse({ error: 'No KV binding', message: 'CACHE_KV not configured' }, 400, headers)
+        }
+
+        // List and delete all keys
+        let deleted = 0
+        let cursor: string | undefined
+        do {
+          const list = await env.CACHE_KV.list({ cursor, limit: 1000 })
+          for (const key of list.keys) {
+            await env.CACHE_KV.delete(key.name)
+            deleted++
+          }
+          cursor = list.list_complete ? undefined : list.cursor
+        } while (cursor)
+
+        return jsonResponse({ success: true, deleted }, 200, headers)
+      }
+
+      // GET /v1/admin/cache/stats - Cache statistics
+      if (path === '/admin/cache/stats' && request.method === 'GET') {
+        if (!env.CACHE_KV) {
+          return jsonResponse({ error: 'No KV binding' }, 400, headers)
+        }
+
+        let count = 0
+        let cursor: string | undefined
+        do {
+          const list = await env.CACHE_KV.list({ cursor, limit: 1000 })
+          count += list.keys.length
+          cursor = list.list_complete ? undefined : list.cursor
+        } while (cursor)
+
+        return jsonResponse({ keyCount: count }, 200, headers)
+      }
+
       // Route not found within API v1
       return jsonResponse(
         {
@@ -598,6 +749,11 @@ export default {
             'GET  /v1/collections/:token',
             'GET  /v1/sources',
             'GET  /v1/categories',
+            'DELETE /v1/users/:id',
+            'GET  /v1/admin/users',
+            'DELETE /v1/admin/users/:id',
+            'POST /v1/admin/cache/purge',
+            'GET  /v1/admin/cache/stats',
           ],
         },
         404,
